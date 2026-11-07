@@ -1,0 +1,24 @@
+services:
+  backend:
+    build: ./backend
+    image: ghcr.io/anish6372/pdc-erp-backend:latest
+    restart: always
+    env_file: ./backend/.env
+    volumes:
+      - backend_data:/app/data
+      - backend_uploads:/app/uploads
+      - backend_private:/app/private
+
+  frontend:
+    build: ./frontend
+    image: ghcr.io/anish6372/pdc-erp-frontend:latest
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  backend_data:
+  backend_uploads:
+  backend_private:

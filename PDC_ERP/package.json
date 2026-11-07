@@ -1,0 +1,8 @@
+{
+  "name": "pdc-erp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pulse Digital Creation ERP - HRMS, ATS, Payroll, Attendance, Tasks, Work Tracking and Chat",
+  "scripts": {"start":"node server.js"},
+  "engines": {"node":">=22.5"}
+}

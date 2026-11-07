@@ -1,0 +1,50 @@
+---
+- hosts: app
+  become: true
+  vars:
+    domain_name: erp.pulsedigitalcreations.com
+    app_dir: /opt/pdc-erp
+
+  tasks:
+    - name: Update apt cache
+      apt: { update_cache: true, cache_valid_time: 3600 }
+
+    # Ubuntu 24.04 ships the Compose plugin as docker-compose-v2
+    # (docker-compose-plugin only exists in Docker's own apt repo).
+    - name: Install Docker, Nginx, certbot and git
+      apt:
+        name: [docker.io, docker-compose-v2, nginx, certbot, python3-certbot-nginx, git]
+        state: present
+
+    - name: Add ubuntu user to the docker group
+      user: { name: ubuntu, groups: docker, append: true }
+
+    - name: Create the app directory and its backend/ subfolder
+      file: { path: "{{ item }}", state: directory, owner: ubuntu }
+      loop:
+        - "{{ app_dir }}"
+        - "{{ app_dir }}/backend"
+
+    # infra/ sits at the repo root, one level above PDC_ERP/
+    - name: Copy docker-compose.yml
+      copy: { src: ../../PDC_ERP/docker-compose.yml, dest: "{{ app_dir }}/docker-compose.yml" }
+
+    - name: Template the backend .env
+      template: { src: templates/backend.env.j2, dest: "{{ app_dir }}/backend/.env", mode: "0600" }
+
+    - name: Template the Nginx site config
+      template:
+        src: templates/nginx-pdc-erp.conf.j2
+        dest: /etc/nginx/sites-available/pdc-erp
+      notify: reload nginx
+
+    - name: Enable the site
+      file:
+        src: /etc/nginx/sites-available/pdc-erp
+        dest: /etc/nginx/sites-enabled/pdc-erp
+        state: link
+      notify: reload nginx
+
+  handlers:
+    - name: reload nginx
+      service: { name: nginx, state: reloaded }

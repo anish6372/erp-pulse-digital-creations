@@ -1,0 +1,18 @@
+require('dotenv').config();
+const http = require('node:http');
+const { createApp } = require('./app');
+const { startAutomationSweep } = require('./jobs/automationSweep');
+const { initSocket } = require('./realtime/socket');
+
+const app = createApp();
+const server = http.createServer(app);
+const port = Number(process.env.PORT || 4000);
+const host = process.env.HOST || '0.0.0.0';
+const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map((s) => s.trim());
+
+initSocket(server, corsOrigins);
+startAutomationSweep();
+
+server.listen(port, host, () => {
+  console.log(`PDC ERP API running at http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+});

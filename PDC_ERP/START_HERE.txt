@@ -1,0 +1,9 @@
+PDC ERP — START HERE
+
+1) Install Node.js 22 LTS or newer.
+2) Double-click start.bat.
+3) Open http://localhost:3000
+4) Admin login: admin / Pdc@2026
+5) Employee logins are listed in README.md.
+
+Do not close the black CMD window while the ERP is running.

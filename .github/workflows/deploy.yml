@@ -1,0 +1,48 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./PDC_ERP/backend
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/pdc-erp-backend:latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./PDC_ERP/frontend
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/pdc-erp-frontend:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/pdc-erp
+            echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker compose pull
+            docker compose up -d --remove-orphans
