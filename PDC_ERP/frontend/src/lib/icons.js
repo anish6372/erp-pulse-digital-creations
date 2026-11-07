@@ -38,6 +38,7 @@ export const icons = {
   menu: wrap('<path d="M4 7h16M4 12h16M4 17h16"/>'),
   expand: wrap('<path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>'),
   logout: wrap('<path d="M15 4h3.5A1.5 1.5 0 0120 5.5v13a1.5 1.5 0 01-1.5 1.5H15"/><path d="M10 8l-4.5 4L10 16"/><path d="M5.5 12H16"/>'),
+  trash: wrap('<path d="M4.5 7h15M9.5 7V5.3a1.5 1.5 0 011.5-1.5h2a1.5 1.5 0 011.5 1.5V7M18 7l-.8 12.3a1.8 1.8 0 01-1.8 1.7H8.6a1.8 1.8 0 01-1.8-1.7L6 7"/><path d="M10 11v6M14 11v6"/>'),
 };
 
 export function icon(name, cls = '') {

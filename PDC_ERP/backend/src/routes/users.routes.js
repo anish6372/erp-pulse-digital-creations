@@ -52,4 +52,21 @@ router.put('/users/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+router.delete('/users/:id', requireAdmin, (req, res) => {
+  const admin = req.user;
+  const id = Number(req.params.id);
+  const existing = db.prepare('SELECT * FROM users WHERE id=?').get(id);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
+  if (id === admin.id) return res.status(400).json({ error: "You can't remove your own account" });
+  if (existing.role === 'Admin') {
+    const otherActiveAdmins = db.prepare("SELECT COUNT(*) c FROM users WHERE role='Admin' AND active=1 AND id<>?").get(id).c;
+    if (otherActiveAdmins === 0) return res.status(400).json({ error: 'At least one active Admin must remain' });
+  }
+  // Soft delete: employees are referenced by tasks, payroll, leave requests, attendance and audit
+  // logs, so deactivating (not erasing the row) preserves that history instead of breaking it.
+  db.prepare('UPDATE users SET active=0, updated_at=? WHERE id=?').run(now(), id);
+  audit(admin, 'DEACTIVATE', 'user', id, existing.employee_code);
+  res.json({ ok: true });
+});
+
 module.exports = router;
