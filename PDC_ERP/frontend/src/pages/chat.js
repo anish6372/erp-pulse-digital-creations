@@ -7,6 +7,7 @@ import { updateNotifications } from './notifications.js';
 import { openGroupModal } from '../components/modals.js';
 
 let groups = [];
+let directUnread = {};
 let typingUsers = new Map(); // key: userId or 'group:<id>:<userId>' -> name
 let typingTimers = new Map();
 let socketWired = false;
@@ -34,7 +35,18 @@ function presenceLine(userId) {
 export async function renderChat() {
   wireSocketListeners();
   await refreshGroupList(false);
+  await refreshDirectUnread(false);
   renderShell();
+}
+
+export async function refreshDirectUnread(rerender = true) {
+  try {
+    const d = await api('/api/chat/unread');
+    directUnread = d.counts || {};
+  } catch (e) {
+    directUnread = {};
+  }
+  if (rerender && $('chatListItems')) renderListItems();
 }
 
 function renderShell() {
@@ -74,8 +86,11 @@ function renderListItems() {
     el.innerHTML = users
       .map((u) => {
         const p = presenceLine(u.id);
+        const unread = directUnread[u.id] || 0;
         return `<div class="chatUser ${state.selectedChatId === u.id ? 'sel' : ''}" data-user-id="${u.id}">
-          <div class="row"><div class="avatar-wrap"><div class="avatar">${initials(u.name)}</div><span class="presence-dot ${p.online ? 'online' : ''}"></span></div>
+          <div class="row"><div class="avatar-wrap"><div class="avatar">${initials(u.name)}</div><span class="presence-dot ${p.online ? 'online' : ''}"></span>${
+            unread ? `<span class="badge red unread-dot">${unread}</span>` : ''
+          }</div>
           <div><b>${esc(u.name)}</b><div class="mini">${esc(p.text)}</div></div></div>
         </div>`;
       })
@@ -126,6 +141,10 @@ async function openChat(id) {
   $('chatForm').addEventListener('submit', sendDirectMessage);
   wireComposeTyping($('chatInput'), { toUserId: id });
   document.querySelectorAll('.chatUser[data-user-id]').forEach((e) => e.classList.toggle('sel', Number(e.dataset.userId) === id));
+  if (directUnread[id]) {
+    delete directUnread[id];
+    renderListItems();
+  }
 }
 
 async function sendDirectMessage(e) {
@@ -231,6 +250,8 @@ function wireSocketListeners() {
     if (involvesOpenChat && $('messages')) {
       appendBubble($('messages'), 'bubble' + (m.sender_id === state.me.id ? ' mine' : ''), `${esc(m.body)}<small>${new Date(m.created_at).toLocaleString('en-IN')}</small>`);
       if (m.sender_id !== state.me.id) api('/api/chat?with_id=' + m.sender_id).catch(() => {});
+    } else if (m.receiver_id === state.me.id) {
+      await refreshDirectUnread(state.currentPage === 'chat');
     }
     await updateNotifications();
   });

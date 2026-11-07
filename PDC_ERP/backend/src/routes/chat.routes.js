@@ -7,6 +7,14 @@ const { getIO } = require('../realtime/io');
 
 const router = express.Router();
 
+router.get('/chat/unread', requireAuth, (req, res) => {
+  const u = req.user;
+  const rows = db.prepare('SELECT sender_id, COUNT(*) c FROM messages WHERE receiver_id=? AND read_at IS NULL GROUP BY sender_id').all(u.id);
+  const counts = {};
+  rows.forEach((r) => (counts[r.sender_id] = r.c));
+  res.json({ counts });
+});
+
 router.get('/chat', requireAuth, (req, res) => {
   const u = req.user;
   const withId = Number(req.query.with_id);

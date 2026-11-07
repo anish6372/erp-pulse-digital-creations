@@ -42,11 +42,15 @@ resource "aws_security_group" "app" {
   name   = "${var.project_name}-sg"
   vpc_id = aws_vpc.main.id
 
+  # Open to the internet so GitHub Actions' runners (dynamic IPs) can SSH in to deploy.
+  # Still key-only auth, no password login - the trade-off is accepted and documented,
+  # not accidental. var.allowed_ssh_cidr is kept as an input for anyone who'd rather
+  # lock this back down (e.g. a self-hosted runner or AWS SSM instead of plain SSH).
   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = ["0.0.0.0/0"]
   }
   ingress {
     from_port   = 80

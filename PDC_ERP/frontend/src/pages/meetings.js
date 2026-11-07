@@ -26,15 +26,21 @@ async function loadMeetings() {
   }
   const rows = data.meetings || [];
   const nowTs = Date.now();
-  const upcoming = rows.filter((m) => new Date(m.scheduled_at).getTime() >= nowTs).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-  const past = rows.filter((m) => new Date(m.scheduled_at).getTime() < nowTs).sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at));
+  // A meeting stays joinable until it actually ends (start + duration), not just until its start time -
+  // otherwise it flips to "Ended" the instant it begins, even while still in progress.
+  const endTs = (m) => new Date(m.scheduled_at).getTime() + (m.duration_minutes || 0) * 60000;
+  const upcoming = rows.filter((m) => endTs(m) >= nowTs).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+  const past = rows.filter((m) => endTs(m) < nowTs).sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at));
   $('meetingCount').textContent = `${upcoming.length} upcoming`;
 
-  const card = (m, isPast) => `<div class="meeting-card ${isPast ? 'past' : ''}">
+  const card = (m, isPast) => {
+    const startTs = new Date(m.scheduled_at).getTime();
+    const live = !isPast && startTs <= nowTs;
+    return `<div class="meeting-card ${isPast ? 'past' : ''}">
     <div class="meeting-main">
       <div class="meeting-icon">${icon('meetings')}</div>
       <div>
-        <b>${esc(m.title)}</b>
+        <b>${esc(m.title)}</b>${live ? ' <span class="badge red">Live now</span>' : ''}
         <div class="mini">${esc(m.description || 'No description')}</div>
         <div class="mini">Hosted by ${esc(m.host_name)} &bull; ${new Date(m.scheduled_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} &bull; ${m.duration_minutes} min</div>
       </div>
@@ -44,6 +50,7 @@ async function loadMeetings() {
       ${admin ? `<button class="btn alt" data-edit-meeting="${m.id}">Edit</button><button class="btn danger" data-cancel-meeting="${m.id}">Cancel</button>` : ''}
     </div>
   </div>`;
+  };
 
   $('meetingsBody').innerHTML = `
     <div class="sectionHead" style="margin-top:4px"><h3 style="font-size:13px">Upcoming</h3></div>

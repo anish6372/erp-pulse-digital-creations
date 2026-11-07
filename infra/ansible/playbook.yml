@@ -30,7 +30,7 @@
       copy: { src: ../../PDC_ERP/docker-compose.yml, dest: "{{ app_dir }}/docker-compose.yml" }
 
     - name: Template the backend .env
-      template: { src: templates/backend.env.j2, dest: "{{ app_dir }}/backend/.env", mode: "0600" }
+      template: { src: templates/backend.env.j2, dest: "{{ app_dir }}/backend/.env", owner: ubuntu, group: ubuntu, mode: "0600" }
 
     - name: Template the Nginx site config
       template:
