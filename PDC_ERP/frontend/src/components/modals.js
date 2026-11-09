@@ -172,7 +172,7 @@ async function saveUser(e, id) {
   e.preventDefault();
   const b = {
     name: $('fu1').value,
-    employee_code: $('fu2').value.toLowerCase(),
+    employee_code: $('fu2').value.trim().toLowerCase(),
     role: $('fu3').value,
     department: $('fu4').value,
     designation: $('fu5').value,
@@ -186,7 +186,12 @@ async function saveUser(e, id) {
     active: Number($('fu14').value),
   };
   const password = $('fu13').value;
-  await api(id ? '/api/users/' + id : '/api/users', { method: id ? 'PUT' : 'POST', body: JSON.stringify({ ...b, password: password || 'Welcome@2026' }) });
+  // Editing a user with the password field left blank must keep their existing password -
+  // only a brand-new employee gets the default. Sending 'Welcome@2026' on every blank edit
+  // would silently reset whoever's being edited, which is exactly what the label next to
+  // the field promises NOT to do.
+  const payload = id ? { ...b, ...(password ? { password } : {}) } : { ...b, password: password || 'Welcome@2026' };
+  await api(id ? '/api/users/' + id : '/api/users', { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
   closeModal();
   await refresh();
   toast('Employee saved');

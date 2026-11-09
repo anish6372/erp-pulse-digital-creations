@@ -63,7 +63,7 @@ function createLoginSession(u, res) {
 router.post('/login', loginLimiter, (req, res) => {
   const b = req.body || {};
   const queryVal = String(b.user_id || '').trim().toLowerCase();
-  const u = db.prepare('SELECT * FROM users WHERE (LOWER(employee_code)=? OR LOWER(email)=?) AND active=1').get(queryVal, queryVal);
+  const u = db.prepare('SELECT * FROM users WHERE (LOWER(TRIM(employee_code))=? OR LOWER(TRIM(email))=?) AND active=1').get(queryVal, queryVal);
   if (!u || !verifyPassword(String(b.password || ''), u.password_hash)) {
     audit(null, 'LOGIN_FAILED', 'session', null, String(b.user_id || ''));
     return res.status(401).json({ error: 'Invalid User ID or Password' });
