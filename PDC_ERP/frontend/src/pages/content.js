@@ -222,7 +222,7 @@ function openItem(id, presetDate = '') {
     ${it?.review_note ? `<div class="notice" style="margin-top:10px"><b>${esc(it.reviewed_by || 'Client')}</b> said: ${esc(it.review_note)}</div>` : ''}
     <div class="pnl" style="margin-top:12px"><button class="btn">Save</button>${
       it && it.stage !== 'Client review' && it.stage !== 'Approved' && it.stage !== 'Posted' ? '<button class="btn alt" type="button" id="sendReview">Send for client review</button>' : ''
-    }${it && isAdmin() ? '<button class="btn danger" type="button" id="delItem">Delete</button>' : ''}</div></form>`,
+    }${it && (isAdmin() || it.created_by === state.me.id) ? '<button class="btn danger" type="button" id="delItem">Delete</button>' : ''}</div></form>`,
     { wide: true }
   );
   $('itemForm').addEventListener('submit', (e) => saveItem(e, id));

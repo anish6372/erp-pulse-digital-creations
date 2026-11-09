@@ -101,12 +101,14 @@ router.put('/content/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/content/:id', requireAdmin, (req, res) => {
+router.delete('/content/:id', requireAuth, (req, res) => {
+  const u = req.user;
   const id = Number(req.params.id);
   const item = db.prepare('SELECT * FROM content_items WHERE id=?').get(id);
   if (!item) return res.status(404).json({ error: 'Not found' });
+  if (u.role !== 'Admin' && item.created_by !== u.id) return res.status(403).json({ error: 'Only an Admin or the person who created this can delete it' });
   db.prepare('DELETE FROM content_items WHERE id=?').run(id);
-  audit(req.user, 'DELETE', 'content_item', id, item.title);
+  audit(u, 'DELETE', 'content_item', id, item.title);
   res.json({ ok: true });
 });
 
