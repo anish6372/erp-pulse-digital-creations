@@ -71,10 +71,19 @@ router.post('/login', loginLimiter, (req, res) => {
   return createLoginSession(u, res);
 });
 
-// Normalizes any phone input (with/without +91, spaces, dashes) down to the last 10 digits,
-// so it can be compared against however a phone number happens to be stored in the DB.
+// Normalizes any phone input (with/without +91, spaces, dashes) down to the last 10 digits.
 function last10Digits(phone) {
   return String(phone || '').replace(/\D/g, '').slice(-10);
+}
+
+// Matching can't be done as a SQL substr() on the raw stored value, since phone numbers are
+// saved however they were typed (e.g. "+91 63728 49262", spaces and all) - comparing against
+// the literal last-10-characters of that string misses the number entirely once formatting
+// is involved. Normalizing both sides down to bare digits before comparing, in JS, is what
+// actually works regardless of how any individual phone number happens to be formatted.
+function findUserByPhone(digits) {
+  const rows = db.prepare("SELECT * FROM users WHERE active=1 AND phone<>''").all();
+  return rows.find((u) => last10Digits(u.phone) === digits);
 }
 
 const otpLimiter = rateLimit({
@@ -95,7 +104,7 @@ router.post('/auth/otp/send', otpLimiter, async (req, res) => {
   }
   const digits = last10Digits((req.body || {}).phone);
   if (digits.length !== 10) return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
-  const u = db.prepare("SELECT id FROM users WHERE active=1 AND substr(phone,-10)=?").get(digits);
+  const u = findUserByPhone(digits);
   if (!u) return res.status(404).json({ error: 'No account found with this mobile number' });
   try {
     const url = `https://control.msg91.com/api/v5/otp?template_id=${encodeURIComponent(process.env.MSG91_OTP_TEMPLATE_ID)}&mobile=91${digits}&authkey=${encodeURIComponent(
@@ -115,7 +124,7 @@ router.post('/auth/otp/verify', otpLimiter, async (req, res) => {
   const digits = last10Digits((req.body || {}).phone);
   const otp = String((req.body || {}).otp || '').trim();
   if (digits.length !== 10 || !otp) return res.status(400).json({ error: 'Phone and OTP are required' });
-  const u = db.prepare("SELECT * FROM users WHERE active=1 AND substr(phone,-10)=?").get(digits);
+  const u = findUserByPhone(digits);
   if (!u) return res.status(404).json({ error: 'No account found with this mobile number' });
   try {
     const url = `https://control.msg91.com/api/v5/otp/verify?mobile=91${digits}&otp=${encodeURIComponent(otp)}&authkey=${encodeURIComponent(process.env.MSG91_AUTH_KEY)}`;
