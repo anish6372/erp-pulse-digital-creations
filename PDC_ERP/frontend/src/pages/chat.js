@@ -36,6 +36,13 @@ export async function renderChat() {
   wireSocketListeners();
   await refreshGroupList(false);
   await refreshDirectUnread(false);
+  // Fresh entry into Chat always shows the list first - whoever has an unread message
+  // sorted to the top with their count - rather than silently reopening whatever
+  // conversation was last viewed, which would clear that badge before it's even seen.
+  // Switching between the Direct/Groups tabs below still restores the open conversation,
+  // since that's mid-session navigation, not a fresh arrival at the page.
+  state.selectedChatId = null;
+  state.selectedGroupId = null;
   renderShell();
 }
 
