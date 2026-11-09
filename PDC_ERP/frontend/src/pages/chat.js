@@ -82,7 +82,11 @@ function renderListItems() {
   const el = $('chatListItems');
   if (!el) return;
   if (state.chatMode === 'direct') {
-    const users = state.boot.users.filter((x) => x.active && x.id !== state.me.id);
+    // Like WhatsApp: whoever has an unread message jumps to the top of the list, so an
+    // unreplied message is never buried below everyone else just by alphabetical order.
+    const users = state.boot.users
+      .filter((x) => x.active && x.id !== state.me.id)
+      .sort((a, b) => (directUnread[b.id] || 0) - (directUnread[a.id] || 0));
     el.innerHTML = users
       .map((u) => {
         const p = presenceLine(u.id);
