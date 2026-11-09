@@ -1,7 +1,7 @@
 // Content calendar: every reel/post for every client, from idea to posted, with a client sign-off link.
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, initials, toast, openModal, closeModal, dateNow, kpi, animateCountUps } from '../lib/dom.js';
+import { $, esc, initials, toast, openModal, closeModal, dateNow, kpi, animateCountUps, confirmDialog } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 
 let data = { items: [], stages: [], kinds: [] };
@@ -234,7 +234,7 @@ function openItem(id, presetDate = '') {
     };
   if ($('delItem'))
     $('delItem').onclick = async () => {
-      if (!confirm('Delete this content item?')) return;
+      if (!(await confirmDialog('Delete this content item?', { title: 'Delete Content', confirmText: 'Delete' }))) return;
       await api('/api/content/' + id, { method: 'DELETE' });
       closeModal();
       renderContent();
@@ -296,7 +296,7 @@ async function openLink() {
       }
     };
     $('rvRegen').onclick = async () => {
-      if (!confirm('The old link will stop working. Continue?')) return;
+      if (!(await confirmDialog('The old link will stop working. Continue?', { title: 'Regenerate Link', confirmText: 'Continue' }))) return;
       const n = await api(`/api/content/review-link/${clientFilter}/regenerate`, { method: 'POST' });
       $('rvUrl').value = n.url;
       toast('New link created');

@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, dateNow, toast, openModal, closeModal } from '../lib/dom.js';
+import { $, esc, dateNow, toast, openModal, closeModal, confirmDialog } from '../lib/dom.js';
 import { cache } from '../lib/cache.js';
 import { refresh, renderPage } from '../router.js';
 import { loadATS } from '../pages/ats.js';
@@ -178,7 +178,7 @@ async function saveUser(e, id) {
         newRole === 'Employee'
           ? `Change ${existing.name} from Admin to Employee? They will immediately lose access to Team, Payroll and all other admin-only pages.`
           : `Change ${existing.name} from Employee to Admin? They will get full access to every employee's data, payroll and settings.`;
-      if (!confirm(warn)) return;
+      if (!(await confirmDialog(warn, { title: 'Confirm Role Change' }))) return;
     }
   }
   const b = {
@@ -247,7 +247,11 @@ async function saveClient(e, id) {
 
 export async function removeClient(id) {
   const c = state.boot.clients.find((x) => x.id === id);
-  if (!confirm(`Remove ${c?.name || 'this client'}?\n\nThis deactivates the client - their task and work-report history is kept, not deleted. You can reactivate them later by editing the record.`)) return;
+  const ok = await confirmDialog(
+    `Remove ${c?.name || 'this client'}?\n\nThis deactivates the client - their task and work-report history is kept, not deleted. You can reactivate them later by editing the record.`,
+    { title: 'Remove Client', confirmText: 'Remove' }
+  );
+  if (!ok) return;
   try {
     await api('/api/clients/' + id, { method: 'DELETE' });
     await refresh();

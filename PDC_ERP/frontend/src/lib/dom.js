@@ -69,3 +69,31 @@ export function closeModal() {
   $('modalBody').innerHTML = '';
   document.dispatchEvent(new Event('modal-closed'));
 }
+
+// In-app replacement for window.confirm() - the native dialog always prefixes itself with
+// the page's own hostname ("localhost:5173 says...", or the production domain), which looks
+// broken/unprofessional and can't be removed or styled. This reuses the app's own modal shell.
+export function confirmDialog(message, { title = 'Please Confirm', danger = true, confirmText = 'Confirm', cancelText = 'Cancel' } = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (val) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('modal-closed', onClosed);
+      closeModal();
+      resolve(val);
+    };
+    const onClosed = () => finish(false);
+    document.addEventListener('modal-closed', onClosed);
+    openModal(
+      title,
+      `<p style="white-space:pre-line;line-height:1.5">${esc(message)}</p>
+       <div class="pnl" style="justify-content:flex-end;margin-top:16px;gap:8px">
+         <button class="btn alt" id="confirmDialogNo">${esc(cancelText)}</button>
+         <button class="btn ${danger ? 'danger' : ''}" id="confirmDialogYes">${esc(confirmText)}</button>
+       </div>`
+    );
+    $('confirmDialogNo').onclick = () => finish(false);
+    $('confirmDialogYes').onclick = () => finish(true);
+  });
+}

@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, dateNow, status, kpi, toast } from '../lib/dom.js';
+import { $, esc, dateNow, status, kpi, toast, confirmDialog } from '../lib/dom.js';
 import { cache } from '../lib/cache.js';
 import { openUserModal } from '../components/modals.js';
 
@@ -127,7 +127,7 @@ function runSalaryCalculator() {
 
 async function finalizePayroll() {
   const month = $('payMonth').value;
-  if (!confirm(`Finalize ${month}? This will apply absence/leave/half-day deductions.`)) return;
+  if (!(await confirmDialog(`Finalize ${month}? This will apply absence/leave/half-day deductions.`, { title: 'Finalize Payroll', confirmText: 'Finalize', danger: false }))) return;
   try {
     await api('/api/payroll/close', { method: 'POST', body: JSON.stringify({ month }) });
     toast('Payroll month finalized');
@@ -139,7 +139,7 @@ async function finalizePayroll() {
 
 async function reopenPayroll() {
   const month = $('payMonth').value;
-  if (!confirm(`Re-open ${month}? Deductions will stop applying until finalized again.`)) return;
+  if (!(await confirmDialog(`Re-open ${month}? Deductions will stop applying until finalized again.`, { title: 'Re-open Payroll', confirmText: 'Re-open', danger: false }))) return;
   try {
     await api('/api/payroll/reopen', { method: 'POST', body: JSON.stringify({ month }) });
     toast('Payroll month re-opened');

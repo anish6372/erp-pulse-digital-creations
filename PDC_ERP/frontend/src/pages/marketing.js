@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, kpi, toast, animateCountUps } from '../lib/dom.js';
+import { $, esc, kpi, toast, animateCountUps, confirmDialog } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { pieChart, barSpark, lineChart } from '../lib/charts.js';
 import { openReelModal, openAudienceModal, openGrowthModal } from '../components/modals.js';
@@ -153,7 +153,7 @@ async function connectInstagram() {
 }
 
 async function disconnectInstagram() {
-  if (!confirm('Disconnect Instagram for this client? You can reconnect any time.')) return;
+  if (!(await confirmDialog('Disconnect Instagram for this client? You can reconnect any time.', { title: 'Disconnect Instagram', confirmText: 'Disconnect' }))) return;
   try {
     await api('/api/instagram/disconnect', { method: 'POST', body: JSON.stringify({ client_id: currentClientId }) });
     toast('Instagram disconnected');
@@ -370,7 +370,7 @@ function renderReelsBody() {
 }
 
 async function deleteReel(id) {
-  if (!confirm('Delete this post entry?')) return;
+  if (!(await confirmDialog('Delete this post entry?', { title: 'Delete Post', confirmText: 'Delete' }))) return;
   await api('/api/marketing/reels/' + id, { method: 'DELETE' });
   await loadReels();
 }
@@ -445,7 +445,7 @@ function renderAudienceBody() {
 }
 
 async function deleteAudience(id) {
-  if (!confirm('Delete this audience entry?')) return;
+  if (!(await confirmDialog('Delete this audience entry?', { title: 'Delete Audience Entry', confirmText: 'Delete' }))) return;
   await api('/api/marketing/audience/' + id, { method: 'DELETE' });
   await loadAudience();
 }
@@ -497,7 +497,7 @@ function renderGrowthBody() {
 }
 
 async function deleteGrowth(id) {
-  if (!confirm('Delete this month entry?')) return;
+  if (!(await confirmDialog('Delete this month entry?', { title: 'Delete Month Entry', confirmText: 'Delete' }))) return;
   await api('/api/marketing/growth/' + id, { method: 'DELETE' });
   await loadGrowth();
 }

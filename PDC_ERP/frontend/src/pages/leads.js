@@ -1,7 +1,7 @@
 // Sales pipeline for the cafes and restaurants the agency is pitching (admin only).
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, initials, toast, openModal, closeModal, dateNow, kpi, animateCountUps } from '../lib/dom.js';
+import { $, esc, initials, toast, openModal, closeModal, dateNow, kpi, animateCountUps, confirmDialog } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 
 let data = { leads: [], packages: [], stages: [], types: [] };
@@ -183,7 +183,7 @@ function openLeadModal(id) {
   $('leadForm').addEventListener('submit', (e) => saveLead(e, id));
   if (l) {
     $('delLeadBtn').onclick = async () => {
-      if (!confirm('Delete this lead and its history?')) return;
+      if (!(await confirmDialog('Delete this lead and its history?', { title: 'Delete Lead', confirmText: 'Delete' }))) return;
       await api('/api/leads/' + id, { method: 'DELETE' });
       closeModal();
       renderLeads();

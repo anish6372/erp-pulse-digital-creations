@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, initials, status, toast } from '../lib/dom.js';
+import { $, esc, initials, status, toast, confirmDialog } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { openUserModal } from '../components/modals.js';
 import { refresh } from '../router.js';
@@ -35,7 +35,11 @@ export function renderTeam() {
 
 async function removeMember(id) {
   const u = state.boot.users.find((x) => x.id === id);
-  if (!confirm(`Remove ${u?.name || 'this employee'} from the active team?\n\nThis deactivates their account - their task, payroll and attendance history is kept, not deleted. You can reactivate them later by editing their record.`)) return;
+  const ok = await confirmDialog(
+    `Remove ${u?.name || 'this employee'} from the active team?\n\nThis deactivates their account - their task, payroll and attendance history is kept, not deleted. You can reactivate them later by editing their record.`,
+    { title: 'Remove Employee', confirmText: 'Remove' }
+  );
+  if (!ok) return;
   try {
     await api('/api/users/' + id, { method: 'DELETE' });
     toast('Employee deactivated');

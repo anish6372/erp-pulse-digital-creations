@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, toast } from '../lib/dom.js';
+import { $, esc, toast, confirmDialog } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { openMeetingModal } from '../components/modals.js';
 
@@ -70,7 +70,7 @@ async function loadMeetings() {
 }
 
 async function cancelMeeting(id) {
-  if (!confirm('Cancel this meeting? Everyone will be notified.')) return;
+  if (!(await confirmDialog('Cancel this meeting? Everyone will be notified.', { title: 'Cancel Meeting', confirmText: 'Cancel Meeting' }))) return;
   try {
     await api('/api/meetings/' + id, { method: 'PUT', body: JSON.stringify({ status: 'Cancelled' }) });
     toast('Meeting cancelled');

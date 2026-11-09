@@ -1,7 +1,7 @@
 // Admin side of new-joiner onboarding: invite -> joiner self-service (Aadhaar, selfie face check, NDA) -> review -> approve.
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, dateNow, kpi, toast, openModal, closeModal, animateCountUps } from '../lib/dom.js';
+import { $, esc, dateNow, kpi, toast, openModal, closeModal, animateCountUps, confirmDialog } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { compareFaces, MATCH_THRESHOLD } from '../lib/face.js';
 import { refresh } from '../router.js';
@@ -201,7 +201,7 @@ function showLinkModal(name, phone, link, emailedTo, title = 'Onboarding link re
 
 async function regenerateLink(id) {
   const r = rows.find((x) => x.id === id);
-  if (!confirm(`Generate a new link for ${r.full_name}? Their current link will stop working.`)) return;
+  if (!(await confirmDialog(`Generate a new link for ${r.full_name}? Their current link will stop working.`, { title: 'Regenerate Link', confirmText: 'Generate' }))) return;
   try {
     const d = await api(`/api/onboarding/${id}/regenerate`, { method: 'POST' });
     showLinkModal(r.full_name, r.phone, d.link, '', 'New onboarding link');
@@ -212,7 +212,7 @@ async function regenerateLink(id) {
 
 async function deleteOnboarding(id) {
   const r = rows.find((x) => x.id === id);
-  if (!confirm(`Delete the onboarding for ${r.full_name}? Any uploaded ID documents are permanently removed.`)) return;
+  if (!(await confirmDialog(`Delete the onboarding for ${r.full_name}? Any uploaded ID documents are permanently removed.`, { title: 'Delete Onboarding', confirmText: 'Delete' }))) return;
   try {
     await api('/api/onboarding/' + id, { method: 'DELETE' });
     toast('Onboarding deleted');
@@ -235,7 +235,7 @@ async function openNdaTemplateModal() {
   );
   if ($('ndaReset'))
     $('ndaReset').onclick = async () => {
-      if (!confirm('Replace your NDA text with the built-in default? Signed agreements are not affected.')) return;
+      if (!(await confirmDialog('Replace your NDA text with the built-in default? Signed agreements are not affected.', { title: 'Reset NDA Template', confirmText: 'Reset', danger: false }))) return;
       try {
         await api('/api/onboarding/nda-template', { method: 'PUT', body: JSON.stringify({ reset: true }) });
         closeModal();
@@ -351,7 +351,7 @@ async function openReviewModal(id) {
   }
   if ($('raPurge'))
     $('raPurge').onclick = async () => {
-      if (!confirm('Permanently delete the Aadhaar and selfie images for ' + o.full_name + '? This cannot be undone.')) return;
+      if (!(await confirmDialog('Permanently delete the Aadhaar and selfie images for ' + o.full_name + '? This cannot be undone.', { title: 'Delete ID Images', confirmText: 'Delete' }))) return;
       try {
         await api(`/api/onboarding/${id}/documents`, { method: 'DELETE' });
         toast('ID images deleted');
@@ -385,7 +385,7 @@ async function recheckFace(idUrl, selfieUrl) {
 async function decide(id, action, o) {
   const note = $('raNote').value.trim();
   if (action === 'request-changes' && !note) return toast('Write what the joiner should fix');
-  if (action === 'reject' && !confirm(`Reject ${o.full_name}? Their link stops working.`)) return;
+  if (action === 'reject' && !(await confirmDialog(`Reject ${o.full_name}? Their link stops working.`, { title: 'Reject Applicant', confirmText: 'Reject' }))) return;
   const btns = [$('raApprove'), $('raChanges'), $('raReject')];
   btns.forEach((b) => (b.disabled = true));
   try {
