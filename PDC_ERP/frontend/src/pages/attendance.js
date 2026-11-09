@@ -3,6 +3,12 @@ import { state } from '../lib/state.js';
 import { $, esc, dateNow, status, kpi, toast } from '../lib/dom.js';
 import { refresh } from '../router.js';
 
+// Against a standard 8-hour workday: full day met, falling short, or well short.
+function dayHoursBadge(h) {
+  const cls = h >= 8 ? 'green' : h >= 6 ? 'yellow' : h > 0 ? 'red' : 'gray';
+  return `<span class="badge ${cls}">${h.toFixed(1)}h</span>`;
+}
+
 export async function renderAttendance() {
   const { me } = state;
   const m = dateNow().slice(0, 7);
@@ -29,9 +35,11 @@ export async function renderAttendance() {
                     r.status === 'Half Day' ? 'selected' : ''
                   }>Half Day</option><option ${r.status === 'Leave' ? 'selected' : ''}>Leave</option></select>`
                 : status(r.status)
-            }</td><td>${esc(r.first_login || '—')}</td>${me.role === 'Admin' ? '<td class="mini">editable</td>' : ''}</tr>`
+            }</td><td>${esc(r.first_login || '—')}</td><td>${dayHoursBadge(r.hours_logged || 0)}</td>${
+              me.role === 'Admin' ? '<td class="mini">editable</td>' : ''
+            }</tr>`
         )
-        .join('') || '<tr><td colspan="4" class="empty">No records.</td></tr>';
+        .join('') || '<tr><td colspan="5" class="empty">No records.</td></tr>';
     cards += `<div class="card" style="margin-bottom:12px"><div class="sectionHead"><div><h3>${esc(x.name)} <span class="mini">${esc(
       x.employee_code
     )}</span></h3></div><div class="pnl">${status('Present')} <span class="mini">${x.summary.present} present • ${x.summary.absent} absent • ${x.summary.half_day} half • ${
@@ -43,13 +51,13 @@ export async function renderAttendance() {
       'Hours Logged',
       logged.toFixed(1) + 'h',
       target ? `${pct}% of ${target}h target` : 'no target set'
-    )}</div><div class="tableWrap" style="margin-top:10px"><table class="table"><thead><tr><th>Date</th><th>Status</th><th>First Login</th>${
+    )}</div><div class="tableWrap" style="margin-top:10px"><table class="table"><thead><tr><th>Date</th><th>Status</th><th>First Login</th><th>Hours Worked</th>${
       me.role === 'Admin' ? '<th>Edit</th>' : ''
     }</tr></thead><tbody>${days}</tbody></table></div></div>`;
   }
   $('page-attendance').innerHTML = `<div class="title"><h1>${
     me.role === 'Admin' ? 'Attendance Management' : 'My Attendance'
-  }</h1><p>Attendance is marked once per day on first login. Login/logout sessions remain separate.</p></div>${cards}`;
+  }</h1><p>Attendance is marked once per day on first login. Hours Worked is the actual login-to-logout time that day, against an 8-hour day.</p></div>${cards}`;
   $('page-attendance')
     .querySelectorAll('select[data-attendance-id]')
     .forEach((sel) => (sel.onchange = () => editAttendance(Number(sel.dataset.attendanceId), sel.value)));

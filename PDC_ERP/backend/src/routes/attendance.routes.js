@@ -9,6 +9,15 @@ const { calcMonthly } = require('../utils/payroll');
 
 const router = express.Router();
 
+// Actual hours worked that day, from real login/logout session timestamps - not the
+// separate manual Work ON/OFF timer, which tracks task time and is a different, narrower
+// thing. Sums every login session that started that day; an open session (still logged
+// in, logout_at NULL) counts up to right now, so today's in-progress hours show live.
+const dayHoursStmt = db.prepare(
+  `SELECT COALESCE(SUM((julianday(COALESCE(logout_at, datetime('now'))) - julianday(login_at)) * 24), 0) h
+   FROM login_sessions WHERE user_id=? AND date(login_at)=?`
+);
+
 router.get('/attendance', requireAuth, (req, res) => {
   const u = req.user;
   const month = req.query.month || today().slice(0, 7);
@@ -18,7 +27,10 @@ router.get('/attendance', requireAuth, (req, res) => {
     user_id: x.id,
     name: x.name,
     employee_code: x.employee_code,
-    rows: db.prepare('SELECT * FROM attendance_days WHERE user_id=? AND date LIKE ? ORDER BY date DESC').all(x.id, month + '-%'),
+    rows: db
+      .prepare('SELECT * FROM attendance_days WHERE user_id=? AND date LIKE ? ORDER BY date DESC')
+      .all(x.id, month + '-%')
+      .map((r) => ({ ...r, hours_logged: dayHoursStmt.get(x.id, r.date).h })),
     summary: calcMonthly(x.id, month),
   }));
   res.json({ month, data: out });
