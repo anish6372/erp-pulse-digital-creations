@@ -13,8 +13,8 @@ const router = express.Router();
 const STAGES = ['Idea', 'Script', 'Shoot', 'Edit', 'Client review', 'Approved', 'Posted'];
 const KINDS = ['Reel', 'Post', 'Carousel', 'Story'];
 
-const itemSelect = `SELECT i.*, c.name client_name, c.short_name client_short, u.name assignee_name
-  FROM content_items i JOIN clients c ON c.id=i.client_id LEFT JOIN users u ON u.id=i.assignee_id`;
+const itemSelect = `SELECT i.*, c.name client_name, c.short_name client_short, u.name assignee_name, creator.role creator_role
+  FROM content_items i JOIN clients c ON c.id=i.client_id LEFT JOIN users u ON u.id=i.assignee_id LEFT JOIN users creator ON creator.id=i.created_by`;
 
 // ---------- internal (signed-in) ----------
 
@@ -24,7 +24,10 @@ router.get('/content', requireAuth, (req, res) => {
   const where = [];
   const args = [];
   if (u.role !== 'Admin') {
-    where.push('(i.assignee_id=? OR i.created_by=?)');
+    // An employee only sees their own content (assigned to them or created by them) -
+    // except anything an Admin created, which is visible to everyone, same as the Admin's
+    // own view of the whole board.
+    where.push("(i.assignee_id=? OR i.created_by=? OR creator.role='Admin')");
     args.push(u.id, u.id);
   }
   if (clientId) {
@@ -100,8 +103,10 @@ router.put('/content/:id', requireAuth, (req, res) => {
 
 router.delete('/content/:id', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
+  const item = db.prepare('SELECT * FROM content_items WHERE id=?').get(id);
+  if (!item) return res.status(404).json({ error: 'Not found' });
   db.prepare('DELETE FROM content_items WHERE id=?').run(id);
-  audit(req.user, 'DELETE', 'content_item', id);
+  audit(req.user, 'DELETE', 'content_item', id, item.title);
   res.json({ ok: true });
 });
 

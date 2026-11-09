@@ -260,11 +260,22 @@ async function saveItem(e, id) {
   if (!id) b.client_id = Number($('ci1').value);
   try {
     if (btn) btn.disabled = true;
+    let newId = id;
     if (id) await api('/api/content/' + id, { method: 'PUT', body: JSON.stringify(b) });
-    else await api('/api/content', { method: 'POST', body: JSON.stringify(b) });
+    else {
+      const r = await api('/api/content', { method: 'POST', body: JSON.stringify(b) });
+      newId = r.id;
+    }
     closeModal();
     toast(b.stage === 'Client review' ? 'Ready for the client — share their review link' : 'Saved');
     await renderContent();
+    // The board scrolls horizontally across 7 stage columns - a brand-new item (usually
+    // landing in the leftmost "Idea" column) can otherwise sit off-screen with no clue
+    // it's there, looking like it silently vanished.
+    if (!id && newId && view === 'board') {
+      const el = document.querySelector(`[data-item="${newId}"]`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
   } catch (err) {
     toast(err.message || 'Could not save');
   } finally {
