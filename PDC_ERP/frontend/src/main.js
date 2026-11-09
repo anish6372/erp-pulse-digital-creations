@@ -220,10 +220,6 @@ $('logoutBtn').onclick = doLogout;
 
 // Auto-logout after 15 minutes with no activity, so a screen left on (or a laptop left
 // open and idle) doesn't keep a work timer running indefinitely and skewing hours.
-// Checking the gap since the last activity event - rather than a timer meant to fire at
-// exactly 15 minutes - also correctly covers the OS-sleep case: no mousemove/keydown
-// events fire while the screen is actually off, so the gap is simply already there by
-// the time the machine wakes and the next check runs.
 const IDLE_LIMIT_MS = 15 * 60 * 1000;
 let lastActivity = Date.now();
 ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach((ev) =>
@@ -239,6 +235,27 @@ setInterval(() => {
   if (!state.token) return;
   if (Date.now() - lastActivity >= IDLE_LIMIT_MS) doLogout();
 }, 30000);
+
+// The activity listeners above aren't enough on their own for a closed lid or a locked
+// screen: when someone comes back, the very act of waking the machine (pressing a key,
+// touching the trackpad) fires those same listeners and resets the idle clock right as
+// the page wakes up - racing against, and usually beating, the next 30-second check. So
+// "away for 3 hours, lid closed" could come back having never actually triggered a logout.
+// Tracking visibilitychange separately closes that gap: the moment the tab goes hidden
+// (screen off, lid closed, locked, backgrounded), note when; the moment it's visible
+// again, check that gap directly and log out immediately if it's past the limit -
+// independent of whatever activity event fires as part of waking it up.
+let hiddenAt = null;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    hiddenAt = Date.now();
+  } else if (document.visibilityState === 'visible') {
+    const wasHiddenFor = hiddenAt ? Date.now() - hiddenAt : 0;
+    hiddenAt = null;
+    lastActivity = Date.now();
+    if (state.token && wasHiddenFor >= IDLE_LIMIT_MS) doLogout();
+  }
+});
 
 $('refreshBtn').onclick = refresh;
 
