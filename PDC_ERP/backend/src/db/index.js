@@ -332,6 +332,11 @@ CREATE TABLE IF NOT EXISTS onboardings(
  FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 `);
+try { db.exec("ALTER TABLE clients ADD COLUMN address TEXT DEFAULT ''"); } catch(e) {}
+try { db.exec("ALTER TABLE clients ADD COLUMN business_type TEXT DEFAULT ''"); } catch(e) {}
+try { db.exec("ALTER TABLE clients ADD COLUMN contact_person TEXT DEFAULT ''"); } catch(e) {}
+try { db.exec("ALTER TABLE clients ADD COLUMN phone TEXT DEFAULT ''"); } catch(e) {}
+try { db.exec("ALTER TABLE clients ADD COLUMN email TEXT DEFAULT ''"); } catch(e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN google_id TEXT DEFAULT ''"); } catch(e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN last_seen TEXT"); } catch(e) {}
 try { db.exec("ALTER TABLE marketing_reels ADD COLUMN source TEXT DEFAULT 'manual'"); } catch(e) {}

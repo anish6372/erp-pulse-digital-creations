@@ -208,23 +208,54 @@ async function saveUser(e, id) {
   toast('Employee saved');
 }
 
-export function openClientModal() {
+export function openClientModal(id) {
+  const x = id ? state.boot.clients.find((c) => c.id === id) : null;
   openModal(
-    'Add Client',
+    x ? 'Edit Client' : 'Add Client',
     `<form id="clientForm"><div class="fgrid">
-      <div class="field"><label>Name</label><input id="fc1" required></div>
-      <div class="field"><label>Short Name</label><input id="fc2" required></div>
-    </div><button class="btn" style="margin-top:10px">Save</button></form>`
+      <div class="field"><label>Name</label><input id="fc1" required value="${esc(x?.name || '')}"></div>
+      <div class="field"><label>Short Name</label><input id="fc2" required value="${esc(x?.short_name || '')}"></div>
+      <div class="field"><label>Business Type</label><input id="fc3" placeholder="e.g. Cafe, Restaurant, Retail" value="${esc(x?.business_type || '')}"></div>
+      <div class="field"><label>Contact Person</label><input id="fc4" value="${esc(x?.contact_person || '')}"></div>
+      <div class="field"><label>Phone</label><input id="fc5" value="${esc(x?.phone || '')}"></div>
+      <div class="field"><label>Email</label><input id="fc6" type="email" value="${esc(x?.email || '')}"></div>
+      <div class="field full"><label>Address</label><textarea id="fc7">${esc(x?.address || '')}</textarea></div>
+      ${x ? `<div class="field"><label>Status</label><select id="fc8"><option value="1" ${x?.active !== 0 ? 'selected' : ''}>Active</option><option value="0" ${x?.active === 0 ? 'selected' : ''}>Inactive</option></select></div>` : ''}
+    </div><button class="btn" style="margin-top:10px">${x ? 'Save Changes' : 'Save'}</button></form>`
   );
-  $('clientForm').addEventListener('submit', createClient);
+  $('clientForm').addEventListener('submit', (e) => saveClient(e, id || 0));
 }
 
-async function createClient(e) {
+async function saveClient(e, id) {
   e.preventDefault();
-  await api('/api/clients', { method: 'POST', body: JSON.stringify({ name: $('fc1').value, short_name: $('fc2').value }) });
+  const b = {
+    name: $('fc1').value,
+    short_name: $('fc2').value,
+    business_type: $('fc3').value,
+    contact_person: $('fc4').value,
+    phone: $('fc5').value,
+    email: $('fc6').value,
+    address: $('fc7').value,
+  };
+  if (id) b.active = Number($('fc8').value);
+  await api(id ? '/api/clients/' + id : '/api/clients', { method: id ? 'PUT' : 'POST', body: JSON.stringify(b) });
   closeModal();
   await refresh();
   renderPage('clients');
+  toast(id ? 'Client updated' : 'Client added');
+}
+
+export async function removeClient(id) {
+  const c = state.boot.clients.find((x) => x.id === id);
+  if (!confirm(`Remove ${c?.name || 'this client'}?\n\nThis deactivates the client - their task and work-report history is kept, not deleted. You can reactivate them later by editing the record.`)) return;
+  try {
+    await api('/api/clients/' + id, { method: 'DELETE' });
+    await refresh();
+    renderPage('clients');
+    toast('Client deactivated');
+  } catch (e) {
+    toast(e.message || 'Could not remove client');
+  }
 }
 
 export function openCandidateModal(id) {
