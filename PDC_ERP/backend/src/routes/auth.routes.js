@@ -71,6 +71,66 @@ router.post('/login', loginLimiter, (req, res) => {
   return createLoginSession(u, res);
 });
 
+// Normalizes any phone input (with/without +91, spaces, dashes) down to the last 10 digits,
+// so it can be compared against however a phone number happens to be stored in the DB.
+function last10Digits(phone) {
+  return String(phone || '').replace(/\D/g, '').slice(-10);
+}
+
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5, // OTP sends cost real money per message - tighter than the password login limiter
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many OTP requests. Try again later.' },
+});
+
+router.get('/auth/otp/config', (req, res) => {
+  res.json({ enabled: !!(process.env.MSG91_AUTH_KEY && process.env.MSG91_OTP_TEMPLATE_ID) });
+});
+
+router.post('/auth/otp/send', otpLimiter, async (req, res) => {
+  if (!process.env.MSG91_AUTH_KEY || !process.env.MSG91_OTP_TEMPLATE_ID) {
+    return res.status(503).json({ error: 'OTP login is not configured' });
+  }
+  const digits = last10Digits((req.body || {}).phone);
+  if (digits.length !== 10) return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
+  const u = db.prepare("SELECT id FROM users WHERE active=1 AND substr(phone,-10)=?").get(digits);
+  if (!u) return res.status(404).json({ error: 'No account found with this mobile number' });
+  try {
+    const url = `https://control.msg91.com/api/v5/otp?template_id=${encodeURIComponent(process.env.MSG91_OTP_TEMPLATE_ID)}&mobile=91${digits}&authkey=${encodeURIComponent(
+      process.env.MSG91_AUTH_KEY
+    )}`;
+    const r = await fetch(url, { method: 'POST' });
+    const d = await r.json();
+    if (d.type !== 'success') return res.status(502).json({ error: d.message || 'Could not send OTP' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: 'Could not reach the SMS provider' });
+  }
+});
+
+router.post('/auth/otp/verify', otpLimiter, async (req, res) => {
+  if (!process.env.MSG91_AUTH_KEY) return res.status(503).json({ error: 'OTP login is not configured' });
+  const digits = last10Digits((req.body || {}).phone);
+  const otp = String((req.body || {}).otp || '').trim();
+  if (digits.length !== 10 || !otp) return res.status(400).json({ error: 'Phone and OTP are required' });
+  const u = db.prepare("SELECT * FROM users WHERE active=1 AND substr(phone,-10)=?").get(digits);
+  if (!u) return res.status(404).json({ error: 'No account found with this mobile number' });
+  try {
+    const url = `https://control.msg91.com/api/v5/otp/verify?mobile=91${digits}&otp=${encodeURIComponent(otp)}&authkey=${encodeURIComponent(process.env.MSG91_AUTH_KEY)}`;
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.type !== 'success') {
+      audit(null, 'LOGIN_FAILED', 'session', null, `otp:${digits}`);
+      return res.status(401).json({ error: 'Invalid or expired OTP' });
+    }
+  } catch (e) {
+    return res.status(502).json({ error: 'Could not reach the SMS provider' });
+  }
+  return createLoginSession(u, res);
+});
+
 router.post('/register', loginLimiter, (req, res) => {
   const { name, email, password, department, phone } = req.body || {};
   

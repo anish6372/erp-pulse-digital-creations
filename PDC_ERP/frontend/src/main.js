@@ -54,6 +54,7 @@ if ($('tabSignInBtn') && $('tabRegisterBtn')) {
     $('tabRegisterBtn').classList.remove('active');
     $('loginForm').classList.remove('hidden');
     $('registerForm').classList.add('hidden');
+    resetOtpForm();
     if ($('loginErr')) $('loginErr').classList.add('hidden');
   };
   $('tabRegisterBtn').onclick = () => {
@@ -61,6 +62,7 @@ if ($('tabSignInBtn') && $('tabRegisterBtn')) {
     $('tabSignInBtn').classList.remove('active');
     $('registerForm').classList.remove('hidden');
     $('loginForm').classList.add('hidden');
+    resetOtpForm();
     if ($('regErr')) $('regErr').classList.add('hidden');
   };
 }
@@ -104,6 +106,69 @@ if ($('googleOAuthBtn')) {
       errElem.classList.remove('hidden');
     }
   };
+}
+
+// OTP-via-mobile login: a two-step form reusing one submit button (Send OTP, then
+// Verify & Sign In) rather than two separate forms, since only one of those actions
+// is ever valid at a time.
+let otpPhase = 'phone';
+
+function resetOtpForm() {
+  otpPhase = 'phone';
+  if ($('otpForm')) $('otpForm').classList.add('hidden');
+  if ($('otpCodeField')) $('otpCodeField').classList.add('hidden');
+  if ($('otpPhone')) {
+    $('otpPhone').readOnly = false;
+    $('otpPhone').value = '';
+  }
+  if ($('otpCode')) $('otpCode').value = '';
+  if ($('otpSubmitBtn')) $('otpSubmitBtn').textContent = 'Send OTP';
+  if ($('otpBackBtn')) $('otpBackBtn').classList.add('hidden');
+  if ($('otpErr')) $('otpErr').classList.add('hidden');
+}
+
+if ($('otpLoginBtn')) {
+  $('otpLoginBtn').onclick = () => {
+    $('loginForm').classList.add('hidden');
+    $('registerForm').classList.add('hidden');
+    $('otpForm').classList.remove('hidden');
+  };
+}
+
+if ($('otpBackBtn')) {
+  $('otpBackBtn').onclick = () => {
+    resetOtpForm();
+    $('loginForm').classList.remove('hidden');
+  };
+}
+
+if ($('otpForm')) {
+  $('otpForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('otpErr').classList.add('hidden');
+    const btn = $('otpSubmitBtn');
+    btn.disabled = true;
+    try {
+      if (otpPhase === 'phone') {
+        await api('/api/auth/otp/send', { method: 'POST', body: JSON.stringify({ phone: $('otpPhone').value }) });
+        otpPhase = 'otp';
+        $('otpCodeField').classList.remove('hidden');
+        $('otpPhone').readOnly = true;
+        btn.textContent = 'Verify & Sign In';
+        $('otpBackBtn').classList.remove('hidden');
+        $('otpCode').focus();
+      } else {
+        const d = await api('/api/auth/otp/verify', { method: 'POST', body: JSON.stringify({ phone: $('otpPhone').value, otp: $('otpCode').value }) });
+        setToken(d.token);
+        await bootApp();
+      }
+    } catch (err) {
+      $('otpErr').textContent = err.message;
+      $('otpErr').classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 async function initGoogleOAuth() {
