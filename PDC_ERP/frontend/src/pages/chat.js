@@ -133,6 +133,14 @@ export async function refreshGroupList(rerender = true) {
   if (rerender && $('chatListItems')) renderListItems();
 }
 
+// WhatsApp-style status, shown only on bubbles the current user sent. The "seen" class
+// (not just the text) is what lets the CSS give it a different color, like WhatsApp's
+// blue double-tick - a plain text change alone can't be styled differently from "Sent".
+function bubbleStatus(m) {
+  if (m.sender_id !== state.me.id) return '';
+  return ` &bull; <span class="bubble-status ${m.read_at ? 'seen' : ''}">${m.read_at ? 'Seen' : 'Sent'}</span>`;
+}
+
 export async function openChat(id) {
   state.chatMode = 'direct';
   state.selectedChatId = id;
@@ -140,7 +148,12 @@ export async function openChat(id) {
   const other = d.user;
   const p = presenceLine(id);
   const body = d.messages
-    .map((m) => `<div class="bubble ${m.sender_id === state.me.id ? 'mine' : ''}">${esc(m.body)}<small>${new Date(m.created_at).toLocaleString('en-IN')}</small></div>`)
+    .map(
+      (m) =>
+        `<div class="bubble ${m.sender_id === state.me.id ? 'mine' : ''}" data-msg-id="${m.id}">${esc(m.body)}<small>${new Date(m.created_at).toLocaleString(
+          'en-IN'
+        )}${bubbleStatus(m)}</small></div>`
+    )
     .join('');
   $('chatBody').innerHTML = `<div class="sectionHead"><h3>${esc(other.name)} <span class="presence-pill ${p.online ? 'online' : ''}">${esc(p.text)}</span></h3></div>
     <div class="messages" id="messages">${body || '<div class="empty">No messages yet.</div>'}</div>
@@ -259,12 +272,31 @@ function wireSocketListeners() {
       state.chatMode === 'direct' &&
       ((m.sender_id === state.selectedChatId && m.receiver_id === state.me.id) || (m.receiver_id === state.selectedChatId && m.sender_id === state.me.id));
     if (involvesOpenChat && $('messages')) {
-      appendBubble($('messages'), 'bubble' + (m.sender_id === state.me.id ? ' mine' : ''), `${esc(m.body)}<small>${new Date(m.created_at).toLocaleString('en-IN')}</small>`);
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble' + (m.sender_id === state.me.id ? ' mine' : '');
+      bubble.dataset.msgId = m.id;
+      bubble.innerHTML = `${esc(m.body)}<small>${new Date(m.created_at).toLocaleString('en-IN')}${bubbleStatus(m)}</small>`;
+      const emptyState = $('messages').querySelector('.empty');
+      if (emptyState) emptyState.remove();
+      $('messages').appendChild(bubble);
+      $('messages').scrollTop = $('messages').scrollHeight;
       if (m.sender_id !== state.me.id) api('/api/chat?with_id=' + m.sender_id).catch(() => {});
     } else if (m.receiver_id === state.me.id) {
       await refreshDirectUnread(state.currentPage === 'chat');
     }
     await updateNotifications();
+  });
+
+  // The other person just read our messages - flip "Sent" to "Seen" on whatever's
+  // currently shown, without refetching anything.
+  socket.on('messages:read', ({ by }) => {
+    if (state.chatMode !== 'direct' || state.selectedChatId !== by || !$('messages')) return;
+    $('messages')
+      .querySelectorAll('.bubble.mine .bubble-status')
+      .forEach((el) => {
+        el.textContent = 'Seen';
+        el.classList.add('seen');
+      });
   });
 
   socket.on('group:message:new', async (m) => {

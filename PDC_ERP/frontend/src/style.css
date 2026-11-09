@@ -127,6 +127,7 @@ button{cursor:pointer;transition:transform .15s var(--ease),filter .15s var(--ea
 .bubble.mine{justify-self:end;background:var(--ink);color:#fff}
 .bubble small{display:block;margin-top:3px;color:rgba(0,0,0,.45);font-size:9px}
 .bubble.mine small{color:rgba(255,255,255,.65)}
+.bubble-status.seen{color:#53bdeb;font-weight:700}
 .modal{position:fixed;inset:0;background:rgba(16,20,26,.6);z-index:50;display:none;align-items:center;justify-content:center;padding:15px}
 .modal.show{display:flex}
 .modalCard{width:min(720px,96vw);max-height:92vh;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:18px;padding:18px}

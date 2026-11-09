@@ -24,7 +24,15 @@ router.get('/chat', requireAuth, (req, res) => {
   const msgs = db
     .prepare(`SELECT m.*,s.name sender_name,r.name receiver_name FROM messages m JOIN users s ON s.id=m.sender_id JOIN users r ON r.id=m.receiver_id WHERE (sender_id=? AND receiver_id=?) OR (sender_id=? AND receiver_id=?) ORDER BY created_at`)
     .all(u.id, withId, withId, u.id);
-  db.prepare('UPDATE messages SET read_at=? WHERE sender_id=? AND receiver_id=? AND read_at IS NULL').run(now(), withId, u.id);
+  const ts = now();
+  const r = db.prepare('UPDATE messages SET read_at=? WHERE sender_id=? AND receiver_id=? AND read_at IS NULL').run(ts, withId, u.id);
+  // Tell the sender live, if they're online, so an already-open conversation on their
+  // side flips from "Sent" to "Seen" without them needing to do anything - same as the
+  // double-tick behavior in WhatsApp.
+  if (r.changes > 0) {
+    const io = getIO();
+    if (io) io.to('user:' + withId).emit('messages:read', { by: u.id, at: ts });
+  }
   res.json({ user: other, messages: msgs });
 });
 
