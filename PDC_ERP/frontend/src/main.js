@@ -4,7 +4,7 @@ document.body.classList.add('app'); // editorial look on every screen, including
 import { api } from './lib/api.js';
 import { state, setToken } from './lib/state.js';
 import { $, closeModal } from './lib/dom.js';
-import { bootApp, refresh, openCmd, setSlim, openDrawer, closeDrawer } from './router.js';
+import { bootApp, refresh, openCmd, setSlim, openDrawer, closeDrawer, renderPage } from './router.js';
 import { openNotifications } from './pages/notifications.js';
 import { icons } from './lib/icons.js';
 import { connectSocket, disconnectSocket } from './lib/socket.js';
@@ -28,6 +28,7 @@ if (onboardMatch) {
 $('fullBtn').innerHTML = icons.expand;
 $('refreshBtn').innerHTML = icons.refresh;
 $('notifBtn').innerHTML = icons.bell;
+$('chatBtn').innerHTML = icons.chat;
 $('logoutBtn').innerHTML = icons.logout;
 $('collapseBtn').innerHTML = icons.menu;
 $('menuBtn').innerHTML = icons.menu;
@@ -153,6 +154,7 @@ $('logoutBtn').onclick = async () => {
 $('refreshBtn').onclick = refresh;
 
 $('notifBtn').onclick = openNotifications;
+$('chatBtn').onclick = () => renderPage('chat');
 
 // Light / dark switch, remembered per browser.
 function paintThemeIcon() {
