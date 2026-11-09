@@ -1,5 +1,8 @@
 import { api } from '../lib/api.js';
-import { $, esc, openModal, toast } from '../lib/dom.js';
+import { $, esc, openModal, closeModal, toast } from '../lib/dom.js';
+import { state } from '../lib/state.js';
+import { renderPage } from '../router.js';
+import { openChat, openGroupChat } from './chat.js';
 
 let lastUnreadNotifications = Number(sessionStorage.getItem('pdc_last_unread') || '0');
 
@@ -36,14 +39,32 @@ export async function openNotifications() {
     }`
   );
   $('markAllReadBtn').onclick = markAllNotifications;
-  document.querySelectorAll('[data-notif-id]').forEach((el) => (el.onclick = () => markNotification(Number(el.dataset.notifId))));
+  document.querySelectorAll('[data-notif-id]').forEach((el) => {
+    const n = rows.find((x) => x.id === Number(el.dataset.notifId));
+    el.onclick = () => handleNotificationClick(n);
+  });
   await updateNotifications();
 }
 
-async function markNotification(id) {
-  await api('/api/notifications/' + id, { method: 'PUT' });
-  await updateNotifications();
-  await openNotifications();
+async function handleNotificationClick(n) {
+  if (!n) return;
+  await api('/api/notifications/' + n.id, { method: 'PUT' });
+  // A message notification takes you straight to that conversation instead of just
+  // marking itself read and reopening the same notifications list.
+  if (n.type === 'chat_message' && n.entity_type === 'user' && n.entity_id) {
+    closeModal();
+    state.chatMode = 'direct';
+    await renderPage('chat');
+    await openChat(n.entity_id);
+  } else if (n.type === 'group_message' && n.entity_type === 'chat_group' && n.entity_id) {
+    closeModal();
+    state.chatMode = 'group';
+    await renderPage('chat');
+    await openGroupChat(n.entity_id);
+  } else {
+    await updateNotifications();
+    await openNotifications();
+  }
 }
 
 async function markAllNotifications() {

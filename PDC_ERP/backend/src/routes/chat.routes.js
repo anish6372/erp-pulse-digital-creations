@@ -38,7 +38,10 @@ router.post('/chat', requireAuth, (req, res) => {
   if (!body) return res.status(400).json({ error: 'Message empty' });
   const ts = now();
   const r = db.prepare('INSERT INTO messages(sender_id,receiver_id,body,created_at) VALUES(?,?,?,?)').run(u.id, receiver, body, ts);
-  notify(receiver, 'chat_message', `New message from ${u.name}`, body.slice(0, 120), 'message', Number(r.lastInsertRowid), `chat_message:${r.lastInsertRowid}`);
+  // entity_id is the sender's user id, not the message id - that's what the notification
+  // needs to carry to open the right conversation when clicked; the message id is still
+  // unique per dedupe_key, which is all it was really needed for.
+  notify(receiver, 'chat_message', `New message from ${u.name}`, body.slice(0, 120), 'user', u.id, `chat_message:${r.lastInsertRowid}`);
   const payload = { id: r.lastInsertRowid, sender_id: u.id, receiver_id: receiver, body, created_at: ts, read_at: null, sender_name: u.name, receiver_name: receiverRow.name };
   const io = getIO();
   if (io) io.to('user:' + receiver).to('user:' + u.id).emit('message:new', payload);

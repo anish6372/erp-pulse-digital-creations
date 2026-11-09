@@ -133,7 +133,7 @@ export async function refreshGroupList(rerender = true) {
   if (rerender && $('chatListItems')) renderListItems();
 }
 
-async function openChat(id) {
+export async function openChat(id) {
   state.chatMode = 'direct';
   state.selectedChatId = id;
   const d = await api('/api/chat?with_id=' + id);
