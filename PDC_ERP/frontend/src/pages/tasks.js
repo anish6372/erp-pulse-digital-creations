@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, status } from '../lib/dom.js';
+import { $, esc, status, toast, confirmDialog } from '../lib/dom.js';
 import { refresh } from '../router.js';
 import { openTaskModal } from '../components/modals.js';
 
@@ -17,6 +17,7 @@ export function renderTasks() {
 
 function renderTaskRows() {
   const { me, boot } = state;
+  const admin = me.role === 'Admin';
   const sf = $('tsFilter')?.value || '';
   const rows = boot.tasks.filter((t) => !sf || t.status === sf);
   $('taskRows').innerHTML = rows.length
@@ -25,17 +26,22 @@ function renderTaskRows() {
           (t) =>
             `<tr><td><b>${esc(t.title)}</b><div class="mini wrap">${esc(t.description)}</div></td><td>${esc(t.client_short || '—')}</td><td>${esc(
               t.assignee_name
-            )}</td><td>${status(t.priority)}</td><td>${esc(t.due_date)}</td><td>${status(t.status)}</td><td><select data-task-id="${t.id}"><option ${
+            )}</td><td>${status(t.priority)}</td><td>${esc(t.due_date)}</td><td>${status(t.status)}</td><td class="pnl"><select data-task-id="${t.id}"><option ${
               t.status === 'Not Started' ? 'selected' : ''
             }>Not Started</option><option ${t.status === 'In Progress' ? 'selected' : ''}>In Progress</option><option ${
               t.status === 'Blocked' ? 'selected' : ''
-            }>Blocked</option><option ${t.status === 'Done' ? 'selected' : ''}>Done</option></select></td></tr>`
+            }>Blocked</option><option ${t.status === 'Done' ? 'selected' : ''}>Done</option></select>${
+              admin ? `<button class="btn danger" data-del-task="${t.id}">Delete</button>` : ''
+            }</td></tr>`
         )
         .join('')}</tbody></table>`
     : '<div class="empty">No tasks found.</div>';
   $('taskRows')
     .querySelectorAll('select[data-task-id]')
     .forEach((sel) => (sel.onchange = () => updateTaskStatus(Number(sel.dataset.taskId), sel.value)));
+  $('taskRows')
+    .querySelectorAll('[data-del-task]')
+    .forEach((b) => (b.onclick = () => deleteTask(Number(b.dataset.delTask))));
 }
 
 async function updateTaskStatus(id, statusValue) {
@@ -43,4 +49,17 @@ async function updateTaskStatus(id, statusValue) {
   if (!t) return;
   await api('/api/tasks/' + id, { method: 'PUT', body: JSON.stringify({ ...t, status: statusValue, assignee_id: t.assignee_id, client_id: t.client_id }) });
   await refresh();
+}
+
+async function deleteTask(id) {
+  const t = state.boot.tasks.find((x) => x.id === id);
+  const ok = await confirmDialog(`Delete "${t?.title || 'this task'}"? This cannot be undone.`, { title: 'Delete Task', confirmText: 'Delete' });
+  if (!ok) return;
+  try {
+    await api('/api/tasks/' + id, { method: 'DELETE' });
+    toast('Task deleted');
+    await refresh();
+  } catch (e) {
+    toast(e.message || 'Could not delete task');
+  }
 }

@@ -307,10 +307,13 @@ async function openLink() {
       }
     };
     $('rvRegen').onclick = async () => {
+      // confirmDialog reuses this same modal, and closes it once answered - $('rvUrl')
+      // no longer exists by the time this resolves, so the only safe move is to reopen
+      // the link modal fresh with the new URL, not write into a field that's gone.
       if (!(await confirmDialog('The old link will stop working. Continue?', { title: 'Regenerate Link', confirmText: 'Continue' }))) return;
-      const n = await api(`/api/content/review-link/${clientFilter}/regenerate`, { method: 'POST' });
-      $('rvUrl').value = n.url;
+      await api(`/api/content/review-link/${clientFilter}/regenerate`, { method: 'POST' });
       toast('New link created');
+      await openLink();
     };
   } catch (e) {
     toast(e.message || 'Could not create the link');

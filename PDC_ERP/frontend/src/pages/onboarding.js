@@ -386,8 +386,10 @@ async function decide(id, action, o) {
   const note = $('raNote').value.trim();
   if (action === 'request-changes' && !note) return toast('Write what the joiner should fix');
   if (action === 'reject' && !(await confirmDialog(`Reject ${o.full_name}? Their link stops working.`, { title: 'Reject Applicant', confirmText: 'Reject' }))) return;
+  // confirmDialog (reject path only) replaces and then clears this modal, so these
+  // buttons may no longer exist by this point - guard instead of assuming they do.
   const btns = [$('raApprove'), $('raChanges'), $('raReject')];
-  btns.forEach((b) => (b.disabled = true));
+  btns.forEach((b) => b && (b.disabled = true));
   try {
     if (action === 'approve') {
       const d = await api(`/api/onboarding/${id}/approve`, {

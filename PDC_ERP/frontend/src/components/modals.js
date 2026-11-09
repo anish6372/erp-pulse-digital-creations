@@ -170,17 +170,13 @@ export function openUserModal(id) {
 
 async function saveUser(e, id) {
   e.preventDefault();
+  // Read every form value FIRST, before anything that might touch the modal - confirmDialog()
+  // below reuses this same #modal/#modalBody to show its own prompt, which replaces this
+  // form's HTML outright and then clears it entirely once answered. Reading $('fu1') etc.
+  // AFTER that point returns null (the inputs are gone), which silently broke every save
+  // that needed confirmation: the role-change confirm, then `$('fu1').value` throwing on a
+  // null element, aborting the function before the API call ever ran.
   const newRole = $('fu3').value;
-  if (id) {
-    const existing = state.boot.users.find((u) => u.id === id);
-    if (existing && existing.role !== newRole) {
-      const warn =
-        newRole === 'Employee'
-          ? `Change ${existing.name} from Admin to Employee? They will immediately lose access to Team, Payroll and all other admin-only pages.`
-          : `Change ${existing.name} from Employee to Admin? They will get full access to every employee's data, payroll and settings.`;
-      if (!(await confirmDialog(warn, { title: 'Confirm Role Change' }))) return;
-    }
-  }
   const b = {
     name: $('fu1').value,
     employee_code: $('fu2').value.trim().toLowerCase(),
@@ -197,6 +193,18 @@ async function saveUser(e, id) {
     active: Number($('fu14').value),
   };
   const password = $('fu13').value;
+
+  if (id) {
+    const existing = state.boot.users.find((u) => u.id === id);
+    if (existing && existing.role !== newRole) {
+      const warn =
+        newRole === 'Employee'
+          ? `Change ${existing.name} from Admin to Employee? They will immediately lose access to Team, Payroll and all other admin-only pages.`
+          : `Change ${existing.name} from Employee to Admin? They will get full access to every employee's data, payroll and settings.`;
+      if (!(await confirmDialog(warn, { title: 'Confirm Role Change' }))) return;
+    }
+  }
+
   // Editing a user with the password field left blank must keep their existing password -
   // only a brand-new employee gets the default. Sending 'Welcome@2026' on every blank edit
   // would silently reset whoever's being edited, which is exactly what the label next to

@@ -6,9 +6,17 @@ import { refresh } from '../router.js';
 export async function renderAttendance() {
   const { me } = state;
   const m = dateNow().slice(0, 7);
-  const d = await api('/api/attendance?month=' + m);
+  const [d, w] = await Promise.all([api('/api/attendance?month=' + m), api('/api/work/time?month=' + m)]);
+  // /api/work/time already existed and was fully built (it even aggregates correctly for
+  // either one employee or the whole team), but no page ever actually called it - the real
+  // hours worked were tracked and computed, just never shown anywhere.
+  const hoursByUser = {};
+  (w.data || []).forEach((r) => (hoursByUser[r.user_id] = r.h));
   let cards = '';
   for (const x of d.data) {
+    const target = state.boot.users.find((u) => u.id === x.user_id)?.monthly_target_hours || 0;
+    const logged = hoursByUser[x.user_id] || 0;
+    const pct = target ? Math.round((logged / target) * 100) : 0;
     const days =
       x.rows
         .map(
@@ -31,7 +39,11 @@ export async function renderAttendance() {
     } leave</span></div></div><div class="grid g5">${kpi('Working Days', x.summary.working_days)}${kpi('Present', x.summary.present)}${kpi('Absent', x.summary.absent)}${kpi(
       'Leave',
       x.summary.full_leave
-    )}${kpi('Half Day', x.summary.half_day)}${kpi('Attendance %', x.summary.attendance_pct + '%')}</div><div class="tableWrap" style="margin-top:10px"><table class="table"><thead><tr><th>Date</th><th>Status</th><th>First Login</th>${
+    )}${kpi('Half Day', x.summary.half_day)}${kpi('Attendance %', x.summary.attendance_pct + '%')}${kpi(
+      'Hours Logged',
+      logged.toFixed(1) + 'h',
+      target ? `${pct}% of ${target}h target` : 'no target set'
+    )}</div><div class="tableWrap" style="margin-top:10px"><table class="table"><thead><tr><th>Date</th><th>Status</th><th>First Login</th>${
       me.role === 'Admin' ? '<th>Edit</th>' : ''
     }</tr></thead><tbody>${days}</tbody></table></div></div>`;
   }
