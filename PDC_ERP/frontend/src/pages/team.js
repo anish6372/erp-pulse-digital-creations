@@ -5,12 +5,18 @@ import { icon } from '../lib/icons.js';
 import { openUserModal } from '../components/modals.js';
 import { refresh } from '../router.js';
 
+let showInactive = false;
+
 export function renderTeam() {
   if (state.me.role !== 'Admin') return;
   const { boot } = state;
+  const inactiveCount = boot.users.filter((u) => !u.active).length;
+  const rows = boot.users.filter((u) => u.active || showInactive);
   $('page-team').innerHTML = `<div class="title"><h1>Team</h1><p>Roles, status and live workload.</p></div>
-  <div class="sectionHead"><div></div><button class="btn" id="addMemberBtn">${icon('plus')}<span>Add Member</span></button></div>
-  <div class="grid g3">${boot.users
+  <div class="sectionHead"><div>${
+    inactiveCount ? `<button class="btn alt" id="toggleInactiveBtn">${showInactive ? 'Hide' : 'Show'} ${inactiveCount} removed</button>` : ''
+  }</div><button class="btn" id="addMemberBtn">${icon('plus')}<span>Add Member</span></button></div>
+  <div class="grid g3">${rows
     .map(
       (u) =>
         `<div class="card"><div class="row"><div class="avatar">${initials(u.name)}</div><div><b>${esc(u.name)}</b><div class="mini">${esc(u.designation || u.role)} • ${esc(
@@ -25,6 +31,11 @@ export function renderTeam() {
     )
     .join('')}</div>`;
   $('addMemberBtn').onclick = () => openUserModal();
+  if ($('toggleInactiveBtn'))
+    $('toggleInactiveBtn').onclick = () => {
+      showInactive = !showInactive;
+      renderTeam();
+    };
   $('page-team')
     .querySelectorAll('[data-edit-member]')
     .forEach((b) => (b.onclick = () => openUserModal(Number(b.dataset.editMember))));
