@@ -204,6 +204,11 @@ router.post('/logout', requireAuth, (req, res) => {
   db.prepare(`UPDATE login_sessions SET logout_at=? WHERE id=(SELECT id FROM login_sessions WHERE user_id=? AND logout_at IS NULL ORDER BY login_at DESC LIMIT 1)`).run(now(), u.id);
   const auth = req.headers.authorization || '';
   db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hash(auth.slice(7)));
+  // Close any still-running work timer too, whatever actually triggered this logout
+  // (the button, the 15-minute idle timeout, or anything else) - otherwise an
+  // abandoned session keeps accruing hours until someone manually turns it off.
+  const openWork = db.prepare('SELECT id FROM work_sessions WHERE user_id=? AND ended_at IS NULL').get(u.id);
+  if (openWork) db.prepare('UPDATE work_sessions SET ended_at=? WHERE id=?').run(now(), openWork.id);
   audit(u, 'LOGOUT', 'session', null, 'Logout');
   res.json({ ok: true });
 });

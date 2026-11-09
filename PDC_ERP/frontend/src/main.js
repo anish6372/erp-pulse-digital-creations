@@ -141,7 +141,7 @@ async function initGoogleOAuth() {
 }
 if (!onboardMatch && !reviewMatch) initGoogleOAuth();
 
-$('logoutBtn').onclick = async () => {
+async function doLogout() {
   try {
     await api('/api/logout', { method: 'POST' });
   } catch (e) {
@@ -149,7 +149,31 @@ $('logoutBtn').onclick = async () => {
   }
   setToken('');
   location.reload();
-};
+}
+
+$('logoutBtn').onclick = doLogout;
+
+// Auto-logout after 15 minutes with no activity, so a screen left on (or a laptop left
+// open and idle) doesn't keep a work timer running indefinitely and skewing hours.
+// Checking the gap since the last activity event - rather than a timer meant to fire at
+// exactly 15 minutes - also correctly covers the OS-sleep case: no mousemove/keydown
+// events fire while the screen is actually off, so the gap is simply already there by
+// the time the machine wakes and the next check runs.
+const IDLE_LIMIT_MS = 15 * 60 * 1000;
+let lastActivity = Date.now();
+['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach((ev) =>
+  document.addEventListener(
+    ev,
+    () => {
+      lastActivity = Date.now();
+    },
+    { passive: true }
+  )
+);
+setInterval(() => {
+  if (!state.token) return;
+  if (Date.now() - lastActivity >= IDLE_LIMIT_MS) doLogout();
+}, 30000);
 
 $('refreshBtn').onclick = refresh;
 
