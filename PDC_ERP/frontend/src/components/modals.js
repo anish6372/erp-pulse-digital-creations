@@ -170,10 +170,21 @@ export function openUserModal(id) {
 
 async function saveUser(e, id) {
   e.preventDefault();
+  const newRole = $('fu3').value;
+  if (id) {
+    const existing = state.boot.users.find((u) => u.id === id);
+    if (existing && existing.role !== newRole) {
+      const warn =
+        newRole === 'Employee'
+          ? `Change ${existing.name} from Admin to Employee? They will immediately lose access to Team, Payroll and all other admin-only pages.`
+          : `Change ${existing.name} from Employee to Admin? They will get full access to every employee's data, payroll and settings.`;
+      if (!confirm(warn)) return;
+    }
+  }
   const b = {
     name: $('fu1').value,
     employee_code: $('fu2').value.trim().toLowerCase(),
-    role: $('fu3').value,
+    role: newRole,
     department: $('fu4').value,
     designation: $('fu5').value,
     joining_date: $('fu6').value,
