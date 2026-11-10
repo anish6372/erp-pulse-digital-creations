@@ -4,8 +4,8 @@ const { now } = require('../utils/datetime');
 const { audit } = require('../utils/audit');
 const { requireAdminOrDept } = require('../middleware/auth');
 // Sales pipeline for the cafes/restaurants being pitched - Admin's by default, and also
-// opened up to the Digital Marketing department, who run these leads day to day.
-const requireLeadsAccess = requireAdminOrDept('Digital Marketing');
+// opened up to the Sales department, who run these leads day to day.
+const requireLeadsAccess = requireAdminOrDept('Sales');
 
 const router = express.Router();
 

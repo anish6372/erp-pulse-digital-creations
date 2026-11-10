@@ -20,7 +20,7 @@ function followUpChip(l) {
 }
 
 export async function renderLeads() {
-  const canSeeLeads = state.me.role === 'Admin' || String(state.me.department || '').toLowerCase() === 'digital marketing';
+  const canSeeLeads = state.me.role === 'Admin' || String(state.me.department || '').toLowerCase() === 'sales';
   if (!canSeeLeads) return;
   try {
     data = await api('/api/leads');
