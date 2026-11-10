@@ -26,4 +26,17 @@ function requireAdmin(req, res, next) {
   });
 }
 
-module.exports = { userBySession, requireAuth, requireAdmin };
+// For a module that's Admin's by default, but also opened up to specific departments
+// (e.g. Leads for Digital Marketing) - compared case-insensitively, since department is
+// a free-typed field on each employee's record, not a fixed enum.
+function requireAdminOrDept(...departments) {
+  const allowed = departments.map((d) => d.toLowerCase());
+  return function (req, res, next) {
+    requireAuth(req, res, () => {
+      if (req.user.role === 'Admin' || allowed.includes(String(req.user.department || '').toLowerCase())) return next();
+      res.status(403).json({ error: 'Not authorized' });
+    });
+  };
+}
+
+module.exports = { userBySession, requireAuth, requireAdmin, requireAdminOrDept };

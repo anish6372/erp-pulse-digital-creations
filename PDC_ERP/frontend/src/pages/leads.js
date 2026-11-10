@@ -1,4 +1,5 @@
-// Sales pipeline for the cafes and restaurants the agency is pitching (admin only).
+// Sales pipeline for the cafes and restaurants the agency is pitching - Admin and the
+// Digital Marketing department.
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, initials, toast, openModal, closeModal, dateNow, kpi, animateCountUps, confirmDialog } from '../lib/dom.js';
@@ -19,7 +20,8 @@ function followUpChip(l) {
 }
 
 export async function renderLeads() {
-  if (state.me.role !== 'Admin') return;
+  const canSeeLeads = state.me.role === 'Admin' || String(state.me.department || '').toLowerCase() === 'digital marketing';
+  if (!canSeeLeads) return;
   try {
     data = await api('/api/leads');
   } catch (e) {

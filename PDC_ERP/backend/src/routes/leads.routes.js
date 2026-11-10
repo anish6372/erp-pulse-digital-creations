@@ -2,11 +2,13 @@ const express = require('express');
 const { db } = require('../db');
 const { now } = require('../utils/datetime');
 const { audit } = require('../utils/audit');
-const { requireAdmin } = require('../middleware/auth');
+const { requireAdminOrDept } = require('../middleware/auth');
+// Sales pipeline for the cafes/restaurants being pitched - Admin's by default, and also
+// opened up to the Digital Marketing department, who run these leads day to day.
+const requireLeadsAccess = requireAdminOrDept('Digital Marketing');
 
 const router = express.Router();
 
-// Sales pipeline for cafes / restaurants the agency is pitching. Admin-only: it holds prospect contact details and deal values.
 const STAGES = ['New', 'Contacted', 'Pitched', 'Proposal sent', 'Won', 'Lost'];
 const TYPES = ['Cafe', 'Restaurant', 'Bakery', 'Cloud kitchen', 'Bar / Pub', 'Other'];
 
@@ -17,7 +19,7 @@ function logActivity(leadId, userId, kind, text) {
   db.prepare('INSERT INTO lead_activities(lead_id,user_id,kind,text,created_at) VALUES(?,?,?,?,?)').run(leadId, userId || null, kind, text, now());
 }
 
-router.get('/leads', requireAdmin, (req, res) => {
+router.get('/leads', requireLeadsAccess, (req, res) => {
   res.json({
     leads: db.prepare(`${leadSelect} ORDER BY l.updated_at DESC`).all(),
     packages: db.prepare('SELECT * FROM packages WHERE active=1 ORDER BY price').all(),
@@ -26,7 +28,7 @@ router.get('/leads', requireAdmin, (req, res) => {
   });
 });
 
-router.post('/leads', requireAdmin, (req, res) => {
+router.post('/leads', requireLeadsAccess, (req, res) => {
   const b = req.body || {};
   const name = String(b.business_name || '').trim();
   if (!name) return res.status(400).json({ error: 'Business name is required' });
@@ -59,7 +61,7 @@ router.post('/leads', requireAdmin, (req, res) => {
   res.status(201).json({ id: r.lastInsertRowid });
 });
 
-router.put('/leads/:id', requireAdmin, (req, res) => {
+router.put('/leads/:id', requireLeadsAccess, (req, res) => {
   const id = Number(req.params.id);
   const e = db.prepare('SELECT * FROM leads WHERE id=?').get(id);
   if (!e) return res.status(404).json({ error: 'Lead not found' });
@@ -92,21 +94,21 @@ router.put('/leads/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/leads/:id', requireAdmin, (req, res) => {
+router.delete('/leads/:id', requireLeadsAccess, (req, res) => {
   const id = Number(req.params.id);
   db.prepare('DELETE FROM leads WHERE id=?').run(id);
   audit(req.user, 'DELETE', 'lead', id);
   res.json({ ok: true });
 });
 
-router.get('/leads/:id/activities', requireAdmin, (req, res) => {
+router.get('/leads/:id/activities', requireLeadsAccess, (req, res) => {
   const rows = db
     .prepare('SELECT a.*, u.name user_name FROM lead_activities a LEFT JOIN users u ON u.id=a.user_id WHERE a.lead_id=? ORDER BY a.id DESC')
     .all(Number(req.params.id));
   res.json({ rows });
 });
 
-router.post('/leads/:id/activities', requireAdmin, (req, res) => {
+router.post('/leads/:id/activities', requireLeadsAccess, (req, res) => {
   const id = Number(req.params.id);
   const b = req.body || {};
   const text = String(b.text || '').trim();
@@ -119,7 +121,7 @@ router.post('/leads/:id/activities', requireAdmin, (req, res) => {
 });
 
 // A won lead becomes a real client, so tasks, content and reports can start straight away.
-router.post('/leads/:id/convert', requireAdmin, (req, res) => {
+router.post('/leads/:id/convert', requireLeadsAccess, (req, res) => {
   const id = Number(req.params.id);
   const l = db.prepare('SELECT * FROM leads WHERE id=?').get(id);
   if (!l) return res.status(404).json({ error: 'Lead not found' });
@@ -135,7 +137,7 @@ router.post('/leads/:id/convert', requireAdmin, (req, res) => {
 
 // --- Packages the sales team can offer ---
 
-router.post('/packages', requireAdmin, (req, res) => {
+router.post('/packages', requireLeadsAccess, (req, res) => {
   const b = req.body || {};
   if (!String(b.name || '').trim()) return res.status(400).json({ error: 'Package name is required' });
   const r = db
@@ -144,7 +146,7 @@ router.post('/packages', requireAdmin, (req, res) => {
   res.status(201).json({ id: r.lastInsertRowid });
 });
 
-router.put('/packages/:id', requireAdmin, (req, res) => {
+router.put('/packages/:id', requireLeadsAccess, (req, res) => {
   const id = Number(req.params.id);
   const e = db.prepare('SELECT * FROM packages WHERE id=?').get(id);
   if (!e) return res.status(404).json({ error: 'Package not found' });

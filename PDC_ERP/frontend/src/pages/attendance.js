@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, dateNow, status, kpi, toast } from '../lib/dom.js';
+import { $, esc, dateNow, status, kpi, toast, openModal } from '../lib/dom.js';
 import { refresh } from '../router.js';
 
 // Against a standard 8-hour workday: full day met, falling short, or well short.
@@ -35,11 +35,13 @@ export async function renderAttendance() {
                     r.status === 'Half Day' ? 'selected' : ''
                   }>Half Day</option><option ${r.status === 'Leave' ? 'selected' : ''}>Leave</option></select>`
                 : status(r.status)
-            }</td><td>${esc(r.first_login || '—')}</td><td>${dayHoursBadge(r.hours_logged || 0)}</td>${
-              me.role === 'Admin' ? '<td class="mini">editable</td>' : ''
-            }</tr>`
+            }</td><td>${esc(r.first_login || '—')}</td><td>${dayHoursBadge(r.hours_logged || 0)}</td><td>${
+              r.login_count
+                ? `<button class="btn alt" style="padding:3px 9px;font-size:11px" data-day-sessions="${x.user_id}|${r.date}">${r.login_count}&times;</button>`
+                : '<span class="mini">—</span>'
+            }</td>${me.role === 'Admin' ? '<td class="mini">editable</td>' : ''}</tr>`
         )
-        .join('') || '<tr><td colspan="5" class="empty">No records.</td></tr>';
+        .join('') || '<tr><td colspan="6" class="empty">No records.</td></tr>';
     cards += `<div class="card" style="margin-bottom:12px"><div class="sectionHead"><div><h3>${esc(x.name)} <span class="mini">${esc(
       x.employee_code
     )}</span></h3></div><div class="pnl">${status('Present')} <span class="mini">${x.summary.present} present • ${x.summary.absent} absent • ${x.summary.half_day} half • ${
@@ -51,7 +53,7 @@ export async function renderAttendance() {
       'Hours Logged',
       logged.toFixed(1) + 'h',
       target ? `${pct}% of ${target}h target` : 'no target set'
-    )}</div><div class="tableWrap" style="margin-top:10px"><table class="table"><thead><tr><th>Date</th><th>Status</th><th>First Login</th><th>Hours Worked</th>${
+    )}</div><div class="tableWrap" style="margin-top:10px"><table class="table"><thead><tr><th>Date</th><th>Status</th><th>First Login</th><th>Hours Worked</th><th>Logins</th>${
       me.role === 'Admin' ? '<th>Edit</th>' : ''
     }</tr></thead><tbody>${days}</tbody></table></div></div>`;
   }
@@ -61,6 +63,34 @@ export async function renderAttendance() {
   $('page-attendance')
     .querySelectorAll('select[data-attendance-id]')
     .forEach((sel) => (sel.onchange = () => editAttendance(Number(sel.dataset.attendanceId), sel.value)));
+  $('page-attendance')
+    .querySelectorAll('[data-day-sessions]')
+    .forEach((b) => {
+      const [userId, date] = b.dataset.daySessions.split('|');
+      b.onclick = () => showDaySessions(Number(userId), date);
+    });
+}
+
+// Every login/logout that day, not just the first - mainly so the 15-minute idle
+// auto-logout's repeated login cycles are actually visible, not hidden behind one count.
+async function showDaySessions(userId, date) {
+  try {
+    const d = await api(`/api/attendance/sessions?user_id=${userId}&date=${date}`);
+    const fmt = (iso) => (iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : null);
+    const rows = d.rows
+      .map((r, i) => {
+        const out = fmt(r.logout_at);
+        return `<tr><td>${i + 1}</td><td>${fmt(r.login_at)}</td><td>${out || '<span class="badge green">Still logged in</span>'}</td></tr>`;
+      })
+      .join('');
+    openModal(
+      `Logins on ${date}`,
+      `<table class="table"><thead><tr><th>#</th><th>Logged in</th><th>Logged out</th></tr></thead><tbody>${rows}</tbody></table>
+       <div class="mini" style="margin-top:8px">Each re-login here is usually the 15-minute inactivity auto-logout, not a new day of work.</div>`
+    );
+  } catch (e) {
+    toast(e.message || 'Could not load login sessions');
+  }
 }
 
 async function editAttendance(id, statusValue) {

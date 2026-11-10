@@ -103,7 +103,18 @@ const EMPLOYEE_SECTIONS = [
   },
 ];
 
-const sections = () => (state.me.role === 'Admin' ? ADMIN_SECTIONS : EMPLOYEE_SECTIONS);
+// Leads is Admin's by default, but Digital Marketing runs it day to day - inject a Growth
+// section for them specifically, rather than opening it to every employee.
+const sections = () => {
+  if (state.me.role === 'Admin') return ADMIN_SECTIONS;
+  const isDigitalMarketing = String(state.me.department || '').toLowerCase() === 'digital marketing';
+  if (!isDigitalMarketing) return EMPLOYEE_SECTIONS;
+  return [
+    ...EMPLOYEE_SECTIONS.slice(0, 2),
+    { id: 'growth', label: 'Growth', icon: 'marketing', items: [['leads', 'target', 'Leads']] },
+    ...EMPLOYEE_SECTIONS.slice(2),
+  ];
+};
 const sectionOf = (page) => sections().find((s) => s.items.some((i) => i[0] === page)) || sections()[0];
 
 

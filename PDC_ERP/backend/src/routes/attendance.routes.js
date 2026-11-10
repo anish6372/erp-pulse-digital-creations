@@ -17,6 +17,10 @@ const dayHoursStmt = db.prepare(
   `SELECT COALESCE(SUM((julianday(COALESCE(logout_at, datetime('now'))) - julianday(login_at)) * 24), 0) h
    FROM login_sessions WHERE user_id=? AND date(login_at)=?`
 );
+// How many separate times they logged in that day - mainly so repeated logins caused by
+// the 15-minute idle auto-logout are visible as a count, not hidden behind one first-login
+// time as if they'd only logged in once.
+const dayLoginCountStmt = db.prepare(`SELECT COUNT(*) c FROM login_sessions WHERE user_id=? AND date(login_at)=?`);
 
 router.get('/attendance', requireAuth, (req, res) => {
   const u = req.user;
@@ -30,10 +34,22 @@ router.get('/attendance', requireAuth, (req, res) => {
     rows: db
       .prepare('SELECT * FROM attendance_days WHERE user_id=? AND date LIKE ? ORDER BY date DESC')
       .all(x.id, month + '-%')
-      .map((r) => ({ ...r, hours_logged: dayHoursStmt.get(x.id, r.date).h })),
+      .map((r) => ({ ...r, hours_logged: dayHoursStmt.get(x.id, r.date).h, login_count: dayLoginCountStmt.get(x.id, r.date).c })),
     summary: calcMonthly(x.id, month),
   }));
   res.json({ month, data: out });
+});
+
+// The actual list of that day's login/logout times, for the "how many times, and when"
+// detail view - the day row only has room for a count.
+router.get('/attendance/sessions', requireAuth, (req, res) => {
+  const u = req.user;
+  const date = String(req.query.date || '');
+  const userId = Number(req.query.user_id) || u.id;
+  if (u.role !== 'Admin' && userId !== u.id) return res.status(403).json({ error: 'Not authorized' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Valid date required' });
+  const rows = db.prepare('SELECT login_at, logout_at FROM login_sessions WHERE user_id=? AND date(login_at)=? ORDER BY login_at').all(userId, date);
+  res.json({ rows });
 });
 
 router.put('/attendance/:id', requireAdmin, (req, res) => {
