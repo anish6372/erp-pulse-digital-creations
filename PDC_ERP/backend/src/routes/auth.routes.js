@@ -27,29 +27,16 @@ function createLoginSession(u, res) {
   db.prepare('INSERT INTO login_sessions(user_id,login_at) VALUES(?,?)').run(u.id, when);
   const d = today();
   const existing = db.prepare('SELECT * FROM attendance_days WHERE user_id=? AND date=?').get(u.id, d);
-  const approvedToday = db.prepare("SELECT id,leave_type FROM leave_requests WHERE user_id=? AND leave_date=? AND status='Approved'").get(u.id, d);
-  const firstStatus = approvedToday
-    ? approvedToday.leave_type === 'Half Day'
-      ? 'Half Day'
-      : 'Leave'
-    : istHM(when) > getSetting('office_start', '11:00')
-    ? 'Late / Half Day'
-    : 'Present';
+  // A real login is direct proof of actual presence - it must never be overridden by a
+  // leave that was only approved in advance but, as it turned out, not actually taken
+  // (plans changed, they came in anyway). Previously an approved leave forced the day's
+  // status to 'Leave'/'Half Day' even when the employee genuinely logged in, which
+  // permanently hid a real present day behind a stale pre-approval.
+  const firstStatus = istHM(when) > getSetting('office_start', '11:00') ? 'Late / Half Day' : 'Present';
   if (!existing) {
-    db.prepare('INSERT INTO attendance_days(user_id,date,status,first_login,manual_note) VALUES(?,?,?,?,?)').run(
-      u.id,
-      d,
-      firstStatus,
-      istHM(when),
-      approvedToday ? 'Approved leave' : 'Automatic login attendance'
-    );
+    db.prepare('INSERT INTO attendance_days(user_id,date,status,first_login,manual_note) VALUES(?,?,?,?,?)').run(u.id, d, firstStatus, istHM(when), 'Automatic login attendance');
   } else if (!existing.first_login) {
-    db.prepare('UPDATE attendance_days SET status=?,first_login=?,manual_note=? WHERE id=?').run(
-      firstStatus,
-      istHM(when),
-      approvedToday ? 'Approved leave' : 'Automatic login attendance',
-      existing.id
-    );
+    db.prepare('UPDATE attendance_days SET status=?,first_login=?,manual_note=? WHERE id=?').run(firstStatus, istHM(when), 'Automatic login attendance', existing.id);
   }
   notify(u.id, 'attendance_checkin', 'Attendance recorded', `Your ${firstStatus} attendance was recorded at ${istHM(when)}.`, 'attendance', existing?.id || null, `attendance_checkin:${u.id}:${d}`);
   if (u.role !== 'Admin') notifyAdmins('attendance_checkin', 'Employee checked in', `${u.name} checked in at ${istHM(when)} — ${firstStatus}.`, 'attendance', existing?.id || null, `attendance_admin:${u.id}:${d}`);

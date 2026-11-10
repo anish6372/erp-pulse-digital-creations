@@ -32,7 +32,7 @@ router.get('/attendance', requireAuth, (req, res) => {
     name: x.name,
     employee_code: x.employee_code,
     rows: db
-      .prepare('SELECT * FROM attendance_days WHERE user_id=? AND date LIKE ? ORDER BY date DESC')
+      .prepare('SELECT * FROM attendance_days WHERE user_id=? AND date LIKE ? ORDER BY date ASC')
       .all(x.id, month + '-%')
       .map((r) => ({ ...r, hours_logged: dayHoursStmt.get(x.id, r.date).h, login_count: dayLoginCountStmt.get(x.id, r.date).c })),
     summary: calcMonthly(x.id, month),

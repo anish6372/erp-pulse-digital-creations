@@ -1,7 +1,7 @@
 // Monthly report for one client, built from Social, Content and Task data. Print it to save as a PDF for the owner.
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, toast, dateNow } from '../lib/dom.js';
+import { $, esc, toast, dateNow, openModal, closeModal } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { lineChart } from '../lib/charts.js';
 
@@ -31,9 +31,11 @@ export async function renderClientReport() {
         .map((c) => `<button class="chip ${c.id === clientId ? 'active' : ''}" data-c="${c.id}"><i>${esc(c.name.charAt(0).toUpperCase())}</i>${esc(c.name)}</button>`)
         .join('')}</div>
       <input type="month" id="rpMonth" class="ig-client" value="${month}" max="${dateNow().slice(0, 7)}">
+      <button class="btn alt noprint" id="rpEdit">Edit numbers</button>
       <button class="btn" id="rpPrint">${icon('report')}<span>Print / Save PDF</span></button>
     </div>
     <div id="rpBody"></div>`;
+  $('rpEdit').onclick = () => openEditModal();
   $('page-reports')
     .querySelectorAll('[data-c]')
     .forEach((b) => (b.onclick = () => {
@@ -74,8 +76,11 @@ function bars(rows, suffix = '%') {
     .join('');
 }
 
-// Plain-English sentences the owner can read in ten seconds.
+// Plain-English sentences the owner can read in ten seconds. A saved override (one line
+// per sentence) replaces the auto-generated ones entirely; otherwise they're built from
+// the real computed numbers below.
 function highlights(r) {
+  if (r.overrides?.highlights) return r.overrides.highlights.split('\n').filter((l) => l.trim());
   const out = [];
   const t = r.totals;
   const reachP = pctChange(t.reach, r.previous.reach);
@@ -162,6 +167,45 @@ function paint() {
         body: JSON.stringify({ client_id: clientId, month, offer_redemptions: $('oc1').value, new_customers: $('oc2').value, notes: $('oc3').value }),
       });
       toast('Saved');
+      await load();
+    } catch (err) {
+      toast(err.message || 'Could not save');
+    }
+  };
+}
+
+// A manual correction layer on top of the real computed numbers - every field left blank
+// just falls back to what's actually computed, shown as the placeholder so it's obvious
+// what the real value currently is.
+function openEditModal() {
+  const r = report;
+  const ov = r.overrides || {};
+  openModal(
+    'Edit report numbers',
+    `<div class="mini" style="margin-bottom:10px">Leave a field blank to use the real computed number instead of overriding it.</div>
+    <form id="rpEditForm"><div class="fgrid">
+      <div class="field"><label>Reach (computed: ${r.totals.reach.toLocaleString('en-IN')})</label><input id="re1" type="number" min="0" placeholder="${r.totals.reach}" value="${ov.reach ?? ''}"></div>
+      <div class="field"><label>Views (computed: ${r.totals.views.toLocaleString('en-IN')})</label><input id="re2" type="number" min="0" placeholder="${r.totals.views}" value="${ov.views ?? ''}"></div>
+      <div class="field"><label>Interactions (computed: ${r.totals.interactions.toLocaleString('en-IN')})</label><input id="re3" type="number" min="0" placeholder="${r.totals.interactions}" value="${ov.interactions ?? ''}"></div>
+      <div class="field"><label>Followers (computed: ${r.followers.now === null ? '—' : r.followers.now.toLocaleString('en-IN')})</label><input id="re4" type="number" min="0" placeholder="${r.followers.now ?? ''}" value="${ov.followers ?? ''}"></div>
+      <div class="field full"><label>Highlights (one sentence per line - leave blank to auto-generate)</label><textarea id="re5" style="min-height:90px" placeholder="${esc(highlights(r).join('\n'))}">${esc(ov.highlights || '')}</textarea></div>
+    </div><button class="btn" style="margin-top:10px">Save</button></form>`
+  );
+  $('rpEditForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const body = {
+      client_id: clientId,
+      month,
+      reach: $('re1').value,
+      views: $('re2').value,
+      interactions: $('re3').value,
+      followers: $('re4').value,
+      highlights: $('re5').value,
+    };
+    try {
+      await api('/api/client-report-overrides', { method: 'PUT', body: JSON.stringify(body) });
+      closeModal();
+      toast('Report updated');
       await load();
     } catch (err) {
       toast(err.message || 'Could not save');

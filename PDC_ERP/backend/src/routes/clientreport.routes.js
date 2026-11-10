@@ -64,18 +64,50 @@ router.get('/client-report', requireAdmin, (req, res) => {
   const tasksDone = db.prepare("SELECT COUNT(*) n FROM tasks WHERE client_id=? AND status='Done' AND substr(completed_at,1,7)=?").get(clientId, month).n;
   const outcome = db.prepare('SELECT * FROM client_outcomes WHERE client_id=? AND month=?').get(clientId, month) || { offer_redemptions: 0, new_customers: 0, notes: '' };
 
+  // An override replaces its own field only when actually set (not null) - everything else
+  // stays the real computed number, so this is a correction on top of real data, not a
+  // separate set of made-up figures.
+  const ov = db.prepare('SELECT * FROM client_report_overrides WHERE client_id=? AND month=?').get(clientId, month);
+  const reach = ov?.reach ?? cur.reach;
+  const views = ov?.views ?? cur.views;
+  const interactions = ov?.interactions ?? cur.interactions;
+  const followersNowFinal = ov?.followers ?? followersNow;
+
   res.json({
     client,
     month,
-    totals: { ...cur, posts: undefined },
+    totals: { ...cur, posts: undefined, reach, views, interactions, rate: reach ? Math.round((interactions / reach) * 1000) / 10 : 0 },
     previous: { reach: prev.reach, views: prev.views, interactions: prev.interactions, count: prev.count },
     bestPosts: cur.posts.slice(0, 3).map((p) => ({ title: p.title, reel_url: p.reel_url, posted_at: p.posted_at, reach: p.reach, post_type: p.post_type })),
     reachDaily,
-    followers: { now: followersNow, before: followersBefore },
+    followers: { now: followersNowFinal, before: followersBefore },
     audience,
     delivery: { byStage: delivery, tasksDone },
     outcome,
+    overrides: {
+      reach: ov?.reach ?? null,
+      views: ov?.views ?? null,
+      interactions: ov?.interactions ?? null,
+      followers: ov?.followers ?? null,
+      highlights: ov?.highlights ?? null,
+    },
   });
+});
+
+// Admin's manual correction on top of the auto-computed numbers/summary - any field left
+// blank falls back to the real computed value, it never silently loses the real data.
+router.put('/client-report-overrides', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  const clientId = Number(b.client_id);
+  if (!clientId) return res.status(400).json({ error: 'client_id is required' });
+  if (!isMonth(b.month)) return res.status(400).json({ error: 'month must be YYYY-MM' });
+  const n = (v) => (v === '' || v === null || v === undefined ? null : Math.max(0, Math.round(Number(v) || 0)));
+  db.prepare(
+    `INSERT INTO client_report_overrides(client_id,month,reach,views,interactions,followers,highlights,updated_at) VALUES(?,?,?,?,?,?,?,?)
+     ON CONFLICT(client_id,month) DO UPDATE SET reach=excluded.reach,views=excluded.views,interactions=excluded.interactions,followers=excluded.followers,highlights=excluded.highlights,updated_at=excluded.updated_at`
+  ).run(clientId, b.month, n(b.reach), n(b.views), n(b.interactions), n(b.followers), b.highlights ? String(b.highlights).slice(0, 2000) : null, now());
+  audit(req.user, 'UPSERT', 'client_report_override', clientId, b.month);
+  res.json({ ok: true });
 });
 
 // The business-side numbers only the cafe knows (offer redemptions, new walk-ins), entered once a month.

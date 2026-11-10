@@ -435,6 +435,22 @@ CREATE TABLE IF NOT EXISTS client_outcomes(
  UNIQUE(client_id, month),
  FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE
 );
+-- Admin override for the report's top-line numbers and summary text, per client/month.
+-- NULL in any numeric column means "use the auto-computed value" - this is a correction
+-- layer on top of real synced data, not a replacement for it.
+CREATE TABLE IF NOT EXISTS client_report_overrides(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ client_id INTEGER NOT NULL,
+ month TEXT NOT NULL,
+ reach INTEGER,
+ views INTEGER,
+ interactions INTEGER,
+ followers INTEGER,
+ highlights TEXT,
+ updated_at TEXT NOT NULL,
+ UNIQUE(client_id, month),
+ FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE
+);
 CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
 CREATE INDEX IF NOT EXISTS idx_content_client ON content_items(client_id, stage);
 `);
