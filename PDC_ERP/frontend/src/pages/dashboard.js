@@ -205,6 +205,10 @@ export async function renderDashboard() {
     await renderDashLeaves();
   } else {
     const att = (await api('/api/attendance?month=' + dateNow().slice(0, 7))).data.find((x) => x.user_id === me.id);
+    // Attendance rows are sorted ascending (1st of the month first) for the Attendance
+    // page's own display - this must look today's row up by its actual date, not assume
+    // position 0 is today, which only happened to be true under the old newest-first order.
+    const todayRow = att?.rows?.find((r) => r.date === dateNow());
     const w = await api('/api/work/status');
     const open = boot.tasks.filter((t) => t.assignee_id === me.id && t.status !== 'Done');
     const done = boot.tasks.filter((t) => t.assignee_id === me.id && t.status === 'Done').length;
@@ -212,10 +216,10 @@ export async function renderDashboard() {
     const nextMeeting = await nextUpcomingMeeting();
     $('page-dashboard').innerHTML = `<div class="title"><h1>Welcome, ${esc(me.name)}</h1><p>Everything you need to manage your day is here.</p></div><div class="grid g5">${kpi(
       'Today',
-      status(att?.rows?.[0]?.status || 'Absent'),
+      status(todayRow?.status || 'Absent'),
       'attendance',
       icon('attendance')
-    )}${kpi('First Login', att?.rows?.[0]?.first_login || '—', 'today', icon('work'))}${kpi('Work', w.on ? 'ON' : 'OFF', w.session?.task_title || 'ready', icon('work'))}${kpi(
+    )}${kpi('First Login', todayRow?.first_login || '—', 'today', icon('work'))}${kpi('Work', w.on ? 'ON' : 'OFF', w.session?.task_title || 'ready', icon('work'))}${kpi(
       'Open Tasks',
       open.length,
       'assigned',

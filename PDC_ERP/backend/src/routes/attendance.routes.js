@@ -52,6 +52,27 @@ router.get('/attendance/sessions', requireAuth, (req, res) => {
   res.json({ rows });
 });
 
+// Backfills a day that has no record at all - a row only ever gets created automatically
+// on that person's first login each day, so any day they never logged in (joined mid-month,
+// a day before this feature existed, a manual correction needed) has nothing to edit until
+// Admin adds it directly.
+router.post('/attendance', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  const userId = Number(b.user_id);
+  const date = String(b.date || '');
+  const allowed = ['Present', 'Absent', 'Leave', 'Half Day', 'Late / Half Day'];
+  if (!userId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !allowed.includes(b.status)) {
+    return res.status(400).json({ error: 'Employee, a valid date and status are required' });
+  }
+  if (!db.prepare('SELECT id FROM users WHERE id=?').get(userId)) return res.status(404).json({ error: 'Employee not found' });
+  db.prepare(
+    `INSERT INTO attendance_days(user_id,date,status,manual_note) VALUES(?,?,?,?)
+     ON CONFLICT(user_id,date) DO UPDATE SET status=excluded.status, manual_note=excluded.manual_note`
+  ).run(userId, date, b.status, 'Added manually by Admin');
+  audit(req.user, 'CREATE', 'attendance', null, `${userId}:${date}:${b.status}`);
+  res.json({ ok: true });
+});
+
 router.put('/attendance/:id', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const b = req.body || {};

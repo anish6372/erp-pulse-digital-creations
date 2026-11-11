@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, dateNow, status, kpi, toast, openModal } from '../lib/dom.js';
+import { $, esc, dateNow, status, kpi, toast, openModal, closeModal } from '../lib/dom.js';
 import { refresh } from '../router.js';
 
 // Against a standard 8-hour workday: full day met, falling short, or well short.
@@ -44,7 +44,9 @@ export async function renderAttendance() {
         .join('') || '<tr><td colspan="6" class="empty">No records.</td></tr>';
     cards += `<div class="card" style="margin-bottom:12px"><div class="sectionHead"><div><h3>${esc(x.name)} <span class="mini">${esc(
       x.employee_code
-    )}</span></h3></div><div class="pnl">${status('Present')} <span class="mini">${x.summary.present} present • ${x.summary.absent} absent • ${x.summary.half_day} half • ${
+    )}</span></h3></div><div class="pnl">${
+      me.role === 'Admin' ? `<button class="btn alt" data-add-record="${x.user_id}">+ Add Record</button>` : ''
+    }${status('Present')} <span class="mini">${x.summary.present} present • ${x.summary.absent} absent • ${x.summary.half_day} half • ${
       x.summary.full_leave + x.summary.half_leave
     } leave</span></div></div><div class="grid g5">${kpi('Working Days', x.summary.working_days)}${kpi('Present', x.summary.present)}${kpi('Absent', x.summary.absent)}${kpi(
       'Leave',
@@ -69,6 +71,34 @@ export async function renderAttendance() {
       const [userId, date] = b.dataset.daySessions.split('|');
       b.onclick = () => showDaySessions(Number(userId), date);
     });
+  $('page-attendance')
+    .querySelectorAll('[data-add-record]')
+    .forEach((b) => (b.onclick = () => openAddRecordModal(Number(b.dataset.addRecord), m)));
+}
+
+// Backfills a day that has no record at all - a row only ever gets created automatically
+// on that person's first login, so any day they never logged in (joined mid-month, before
+// this feature existed, etc.) has nothing to edit until added directly.
+function openAddRecordModal(userId, month) {
+  const user = state.boot.users.find((u) => u.id === userId);
+  openModal(
+    `Add attendance record${user ? ' — ' + user.name : ''}`,
+    `<form id="addAttForm"><div class="fgrid">
+      <div class="field"><label>Date</label><input id="aa1" type="date" min="${month}-01" max="${dateNow()}" value="${month}-01" required></div>
+      <div class="field"><label>Status</label><select id="aa2"><option>Present</option><option>Absent</option><option>Late / Half Day</option><option>Half Day</option><option>Leave</option></select></div>
+    </div><button class="btn" style="margin-top:10px">Add</button></form>`
+  );
+  $('addAttForm').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('/api/attendance', { method: 'POST', body: JSON.stringify({ user_id: userId, date: $('aa1').value, status: $('aa2').value }) });
+      closeModal();
+      toast('Attendance record added');
+      await refresh();
+    } catch (err) {
+      toast(err.message || 'Could not add record');
+    }
+  };
 }
 
 // Every login/logout that day, not just the first - mainly so the 15-minute idle
