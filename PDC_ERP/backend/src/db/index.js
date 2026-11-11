@@ -435,6 +435,26 @@ CREATE TABLE IF NOT EXISTS client_outcomes(
  UNIQUE(client_id, month),
  FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE
 );
+-- One AI-generated prospect report per business pitched - website signals collected
+-- automatically, Instagram entered by hand (scraping a prospect's Instagram who hasn't
+-- authorized anything would violate their ToS), both fed to the strategy write-up.
+CREATE TABLE IF NOT EXISTS prospect_reports(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ business_name TEXT NOT NULL,
+ website_url TEXT DEFAULT '',
+ instagram_handle TEXT DEFAULT '',
+ instagram_followers INTEGER,
+ instagram_last_post TEXT DEFAULT '',
+ instagram_posting_frequency TEXT DEFAULT '',
+ instagram_notes TEXT DEFAULT '',
+ website_signals TEXT NOT NULL DEFAULT '{}',
+ swot TEXT NOT NULL DEFAULT '{}',
+ strategy TEXT NOT NULL DEFAULT '',
+ created_by INTEGER,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- Admin override for the report's top-line numbers and summary text, per client/month.
 -- NULL in any numeric column means "use the auto-computed value" - this is a correction
 -- layer on top of real synced data, not a replacement for it.
