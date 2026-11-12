@@ -9,8 +9,8 @@ const requireLeadsAccess = requireAdminOrDept('Sales');
 
 const router = express.Router();
 
-const STAGES = ['New', 'Contacted', 'Pitched', 'Proposal sent', 'Won', 'Lost'];
-const TYPES = ['Cafe', 'Restaurant', 'Bakery', 'Cloud kitchen', 'Bar / Pub', 'Other'];
+const STAGES = ['New', 'Contacted', 'Call done', 'Pitched', 'Demo done', 'Proposal sent', 'Done', 'Won', 'Lost'];
+const TYPES = ['Cafe', 'Restaurant', 'Bakery', 'Cloud kitchen', 'Bar / Pub', 'Jewellery', 'Other'];
 
 const leadSelect = `SELECT l.*, u.name owner_name, p.name package_name
   FROM leads l LEFT JOIN users u ON u.id=l.owner_id LEFT JOIN packages p ON p.id=l.package_id`;

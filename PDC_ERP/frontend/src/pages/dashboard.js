@@ -107,9 +107,9 @@ function adminDashboardHtml(x, ov, nextMeeting) {
     ...(x.active - marked > 0 ? [{ label: 'Not marked', value: x.active - marked, color: C.slate }] : []),
   ];
 
-  const stageColor = { New: C.slate, Contacted: C.blue, Pitched: C.purple, 'Proposal sent': C.amber, Won: C.green, Lost: C.red };
+  const stageColor = { New: C.slate, Contacted: C.blue, 'Call done': C.blue, Pitched: C.purple, 'Demo done': C.purple, Done: C.green, 'Proposal sent': C.amber, Won: C.green, Lost: C.red };
   const leadTotal = ov.lead_stages.reduce((a, r) => a + r.n, 0);
-  const pipeValue = ov.lead_stages.filter((r) => r.stage !== 'Lost' && r.stage !== 'Won').reduce((a, r) => a + r.value, 0);
+  const pipeValue = ov.lead_stages.filter((r) => r.stage !== 'Lost' && r.stage !== 'Won' && r.stage !== 'Done').reduce((a, r) => a + r.value, 0);
   const leadSeg = ov.lead_stages.map((r) => ({ label: r.stage, value: r.n, color: stageColor[r.stage] || C.slate }));
 
   const prio = (p) => `<span class="prio ${String(p || 'Medium').toLowerCase()}">${esc(p || 'Medium')}</span>`;

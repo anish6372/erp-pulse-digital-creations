@@ -412,7 +412,15 @@ function renderLeadsList(rows) {
     const ev = id === 'hlSearch' ? 'input' : 'change';
     el.addEventListener(ev, async () => {
       filters = { q: $('hlSearch').value, tier: $('hlTier').value, niche: $('hlNiche').value, status: $('hlStatus').value };
+      const caret = el.selectionStart;
       renderLeadsList(await loadLeads());
+      // The list is rebuilt on every change, which dropped focus after each typed character -
+      // put the cursor back where it was so typing keeps flowing.
+      const fresh = $(id);
+      if (fresh && ev === 'input') {
+        fresh.focus();
+        if (caret != null) fresh.setSelectionRange(caret, caret);
+      }
     });
   });
   $('hlAddBtn').onclick = () => switchTab('add');

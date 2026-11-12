@@ -12,7 +12,7 @@ const money = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 const monthOf = (iso) => String(iso || '').slice(0, 7);
 
 function followUpChip(l) {
-  if (!l.next_follow_up || ['Won', 'Lost'].includes(l.stage)) return '';
+  if (!l.next_follow_up || ['Won', 'Lost', 'Done'].includes(l.stage)) return '';
   const t = dateNow();
   if (l.next_follow_up < t) return `<span class="badge red">Overdue ${esc(l.next_follow_up.slice(5))}</span>`;
   if (l.next_follow_up === t) return '<span class="badge yellow">Follow up today</span>';
@@ -42,7 +42,7 @@ function visibleLeads() {
 
 function paint() {
   const all = data.leads;
-  const open = all.filter((l) => !['Won', 'Lost'].includes(l.stage));
+  const open = all.filter((l) => !['Won', 'Lost', 'Done'].includes(l.stage));
   const t = dateNow();
   const wonThisMonth = all.filter((l) => l.stage === 'Won' && monthOf(l.updated_at) === t.slice(0, 7));
   const overdue = open.filter((l) => l.next_follow_up && l.next_follow_up < t).length;

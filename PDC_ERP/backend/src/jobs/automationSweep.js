@@ -27,7 +27,7 @@ function automationSweep() {
     }
     // Sales follow-ups: remind the lead's owner (or the admins) once a day until the follow-up is done.
     const due = db
-      .prepare("SELECT id,business_name,owner_id,next_follow_up FROM leads WHERE next_follow_up<>'' AND next_follow_up<=? AND stage NOT IN ('Won','Lost')")
+      .prepare("SELECT id,business_name,owner_id,next_follow_up FROM leads WHERE next_follow_up<>'' AND next_follow_up<=? AND stage NOT IN ('Won','Lost','Done')")
       .all(t);
     for (const l of due) {
       const title = l.next_follow_up < t ? 'Lead follow-up overdue' : 'Lead follow-up today';
