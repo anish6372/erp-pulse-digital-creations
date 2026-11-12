@@ -25,6 +25,7 @@ import { renderContent } from './pages/content.js';
 import { renderClientReport } from './pages/clientReport.js';
 import { renderProspect } from './pages/prospect.js';
 import { renderCompliance } from './pages/compliance.js';
+import { renderHunter } from './pages/hunter.js';
 
 // The menu is two levels: a rail of sections, and the screens inside the chosen section.
 // Each item is [page id, icon, label].
@@ -50,6 +51,7 @@ const ADMIN_SECTIONS = [
     icon: 'marketing',
     items: [
       ['leads', 'target', 'Leads'],
+      ['hunter', 'radar', 'Client Hunter'],
       ['prospect', 'search', 'Prospect Analyzer'],
       ['reports', 'report', 'Client reports'],
       ['compliance', 'shield', 'Compliance'],
@@ -115,7 +117,7 @@ const sections = () => {
   if (!isSales) return EMPLOYEE_SECTIONS;
   return [
     ...EMPLOYEE_SECTIONS.slice(0, 2),
-    { id: 'growth', label: 'Growth', icon: 'marketing', items: [['leads', 'target', 'Leads']] },
+    { id: 'growth', label: 'Growth', icon: 'marketing', items: [['leads', 'target', 'Leads'], ['hunter', 'radar', 'Client Hunter']] },
     ...EMPLOYEE_SECTIONS.slice(2),
   ];
 };
@@ -139,6 +141,7 @@ const TITLES = (admin) => ({
   clients: 'Clients',
   marketing: 'Social',
   leads: 'Leads',
+  hunter: 'Client Hunter',
   prospect: 'Prospect Analyzer',
   content: 'Content calendar',
   reports: 'Client report',
@@ -319,6 +322,7 @@ export async function renderPage(p) {
   if (p === 'clients') renderClients();
   if (p === 'marketing') await renderMarketing();
   if (p === 'leads') await renderLeads();
+  if (p === 'hunter') await renderHunter();
   if (p === 'prospect') await renderProspect();
   if (p === 'compliance') await renderCompliance();
   if (p === 'content') await renderContent();

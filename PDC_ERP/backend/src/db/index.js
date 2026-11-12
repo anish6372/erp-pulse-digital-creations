@@ -483,6 +483,63 @@ CREATE TABLE IF NOT EXISTS prospect_reports(
  FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- Client Hunter: businesses Pulse is prospecting - scored (fit/need/intent/reach) into
+-- hot/warm/parked tiers from real, observed or hand-entered channel signals. "channels"
+-- and "swot" are JSON; contact fields are only ever what the team found publicly.
+CREATE TABLE IF NOT EXISTS hunter_leads(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ name TEXT NOT NULL,
+ niche TEXT NOT NULL DEFAULT 'other',
+ city TEXT DEFAULT '',
+ website TEXT DEFAULT '',
+ instagram TEXT DEFAULT '',
+ linkedin TEXT DEFAULT '',
+ email TEXT DEFAULT '',
+ phone TEXT DEFAULT '',
+ contact_name TEXT DEFAULT '',
+ contact_role TEXT DEFAULT '',
+ signal_type TEXT NOT NULL DEFAULT 'manual',
+ signal_title TEXT DEFAULT '',
+ signal_source TEXT DEFAULT '',
+ signal_at TEXT,
+ gmb_rating REAL,
+ gmb_reviews INTEGER,
+ ig_followers INTEGER,
+ ig_last_post_days INTEGER,
+ ig_posting_frequency TEXT DEFAULT '',
+ channels TEXT NOT NULL DEFAULT '{}',
+ swot TEXT NOT NULL DEFAULT '{}',
+ elevator_pitch TEXT DEFAULT '',
+ score INTEGER NOT NULL DEFAULT 0,
+ tier TEXT NOT NULL DEFAULT 'parked',
+ status TEXT NOT NULL DEFAULT 'new',
+ owner_id INTEGER,
+ notes TEXT DEFAULT '',
+ created_by INTEGER,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE SET NULL,
+ FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+-- One draft/sent outreach message per channel per lead. Nothing is ever sent
+-- automatically - a person approves (and can edit) every message before it moves to Tasks.
+CREATE TABLE IF NOT EXISTS hunter_touches(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ lead_id INTEGER NOT NULL,
+ channel TEXT NOT NULL,
+ subject TEXT DEFAULT '',
+ body TEXT NOT NULL DEFAULT '',
+ to_value TEXT DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'draft',
+ outcome TEXT DEFAULT '',
+ outcome_note TEXT DEFAULT '',
+ approved_by INTEGER,
+ approved_at TEXT,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(lead_id) REFERENCES hunter_leads(id) ON DELETE CASCADE,
+ FOREIGN KEY(approved_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- Admin override for the report's top-line numbers and summary text, per client/month.
 -- NULL in any numeric column means "use the auto-computed value" - this is a correction
 -- layer on top of real synced data, not a replacement for it.
