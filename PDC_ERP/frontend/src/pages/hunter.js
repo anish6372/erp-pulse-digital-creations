@@ -2,7 +2,7 @@
 // hand, get an AI-drafted first-touch message per available channel, approve or reject it
 // (nothing sends itself), work approved ones as tasks, and a rough market-size estimate.
 // Admin and Sales department only, same access as the existing Leads page.
-import { api } from '../lib/api.js';
+import { api, runJob } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, toast, openModal, closeModal, confirmDialog, kpi } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
@@ -208,7 +208,7 @@ async function loadMarket() {
       try {
         for (;;) {
           lb.textContent = `Looking up locations… ${found} found`;
-          const r = await api('/api/hunter/leads/locate', { method: 'POST', body: JSON.stringify({ city: marketParams.city }) });
+          const r = await runJob('/api/hunter/leads/locate', { city: marketParams.city }, (p) => (lb.textContent = `Locating ${p.done || 0}/${p.total || '?'}… ${found} found`));
           found += r.located;
           if (!r.remaining || !r.tried) break;
         }
@@ -631,13 +631,11 @@ async function runBulkImport() {
   let added = 0, drafted = 0;
   const skipped = [];
   try {
-    for (let i = 0; i < items.length; i += 10) {
-      out.textContent = `Auditing and scoring… ${Math.min(i + 10, items.length)} of ${items.length}`;
-      const r = await api('/api/hunter/leads/bulk', { method: 'POST', body: JSON.stringify({ rows: items.slice(i, i + 10) }) });
-      added += r.added;
-      drafted += r.drafted;
-      r.skipped.forEach((s) => skipped.push({ ...s, row: s.row + i }));
-    }
+    out.textContent = 'Queued…';
+    const r = await runJob('/api/hunter/leads/bulk', { rows: items }, (p) => (out.textContent = `${p.message || 'Working'} (${p.done || 0}/${p.total || items.length})`));
+    added = r.added;
+    drafted = r.drafted;
+    r.skipped.forEach((s) => skipped.push(s));
   } catch (e) {
     skipped.push({ row: '-', reason: e.message || 'import stopped' });
   }
@@ -837,7 +835,7 @@ async function runHunt(id, btn) {
   btn.disabled = true;
   btn.textContent = 'Running…';
   try {
-    const r = await api(`/api/hunter/hunts/${id}/run`, { method: 'POST' });
+    const r = await runJob(`/api/hunter/hunts/${id}/run`, {}, (p) => (btn.textContent = p.total ? `Running ${p.done}/${p.total}` : 'Searching…'));
     toast(`Found ${r.found}, kept ${r.kept} new lead(s) - check Leads`);
     await paintHunts();
   } catch (e) {

@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { api } from '../../legacy/lib/api.js';
+import { api, runJob } from '../../legacy/lib/api.js';
 import { confirmDialog, toast } from '../../legacy/lib/dom.js';
 import Icon from '../Icon';
 import { CITIES, NICHES, useFetch } from './shared';
@@ -10,6 +10,7 @@ export default function Hunts({ cfg }) {
   const [niche, setNiche] = useState('dental');
   const [city, setCity] = useState('Bangalore');
   const [running, setRunning] = useState(null);
+  const [runLabel, setRunLabel] = useState('');
   const rows = data?.rows || [];
   const disabled = cfg.hunts_enabled === false;
 
@@ -26,7 +27,7 @@ export default function Hunts({ cfg }) {
   const run = async (id) => {
     setRunning(id);
     try {
-      const r = await api(`/api/hunter/hunts/${id}/run`, { method: 'POST' });
+      const r = await runJob(`/api/hunter/hunts/${id}/run`, {}, (p) => setRunLabel(p.total ? `Running ${p.done}/${p.total}` : 'Searching…'));
       toast(`Found ${r.found}, kept ${r.kept} new lead(s) - check Leads`);
     } catch (e) {
       toast(e.message || 'Hunt run failed');
@@ -69,7 +70,7 @@ export default function Hunts({ cfg }) {
                     <td className="mini">{h.last_run_at ? new Date(h.last_run_at).toLocaleString('en-IN') : 'Never'}</td>
                     <td>{h.found_count}</td><td>{h.kept_count}</td>
                     <td className="pnl">
-                      <button className="btn alt" style={{ padding: '3px 9px', fontSize: 11 }} disabled={disabled || running === h.id} onClick={() => run(h.id)}>{running === h.id ? 'Running…' : 'Run now'}</button>
+                      <button className="btn alt" style={{ padding: '3px 9px', fontSize: 11 }} disabled={disabled || running === h.id} onClick={() => run(h.id)}>{running === h.id ? runLabel || 'Running…' : 'Run now'}</button>
                       <button className="btn danger" style={{ padding: '3px 9px', fontSize: 11 }} onClick={() => del(h.id)}><Icon raw="trash" /></button>
                     </td>
                   </tr>

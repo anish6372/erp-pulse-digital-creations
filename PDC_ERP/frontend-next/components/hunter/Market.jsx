@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { api } from '../../legacy/lib/api.js';
+import { runJob } from '../../legacy/lib/api.js';
 import { toast } from '../../legacy/lib/dom.js';
 import { CITIES, Kpi, NICHES, TIER_CLASS, TIER_COLOR, money, useFetch } from './shared';
 
@@ -95,7 +95,7 @@ function RadialSection({ d, m, city, reload, onOpenLead }) {
     try {
       for (;;) {
         setLocating(`Looking up locations… ${found} found`);
-        const r = await api('/api/hunter/leads/locate', { method: 'POST', body: JSON.stringify({ city }) });
+        const r = await runJob('/api/hunter/leads/locate', { city }, (p) => setLocating(`Locating ${p.done || 0}/${p.total || '?'}… ${found} found`));
         found += r.located;
         if (!r.remaining || !r.tried) break;
       }

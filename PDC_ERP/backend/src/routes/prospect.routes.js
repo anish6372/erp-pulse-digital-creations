@@ -1,5 +1,5 @@
 const express = require('express');
-const rateLimit = require('express-rate-limit');
+const { makeLimiter } = require('../utils/limiter');
 const { db } = require('../db');
 const { now } = require('../utils/datetime');
 const { audit } = require('../utils/audit');
@@ -10,13 +10,7 @@ const { generateProspectStrategy } = require('../utils/prospectAI');
 const router = express.Router();
 
 // Each report costs a real AI API call - limited separately from the general API traffic.
-const analyzeLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 15,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many reports requested. Try again later.' },
-});
+const analyzeLimiter = makeLimiter({ windowMs: 15 * 60 * 1000, limit: 15, message: 'Too many reports requested. Try again later.', prefix: 'prospect-analyzeLimiter' });
 
 router.get('/prospect/config', requireAdmin, (req, res) => {
   res.json({ enabled: !!process.env.ANTHROPIC_API_KEY });

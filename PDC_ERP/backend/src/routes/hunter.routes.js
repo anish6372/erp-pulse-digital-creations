@@ -12,12 +12,21 @@ const { analyzeWebsite } = require('../utils/websiteSignals');
 const { generateHunterReport } = require('../utils/prospectAI');
 const { NICHES, CITIES, LOCALITIES, SIGNALS, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
 const { searchGoogleMaps, huntSignal } = require('../utils/apifyHunt');
+const { makeLimiter } = require('../utils/limiter');
+const { cached, invalidate } = require('../utils/cache');
+const jobs = require('../utils/jobs');
 
 const router = express.Router();
 const requireHunterAccess = requireAdminOrDept('Sales');
+
+// Cached dashboard/market numbers are dropped after any write (POST/PUT/DELETE) in this module.
+router.use('/hunter', (req, res, next) => {
+  if (req.method !== 'GET') res.on('finish', () => invalidate('hunter:'));
+  next();
+});
 const normalize = (v) => String(v || '').trim().toLowerCase();
 
-const aiLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many AI requests this hour. Try again later.' } });
+const aiLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, limit: 30, message: 'Too many AI requests this hour. Try again later.', prefix: 'hunter-ai' });
 
 router.get('/hunter/config', requireHunterAccess, (req, res) => {
   res.json({ enabled: !!process.env.ANTHROPIC_API_KEY, hunts_enabled: !!process.env.APIFY_TOKEN, niches: NICHES });
@@ -175,16 +184,18 @@ async function draftForLead(leadId, actor) {
   if (actor) audit(actor, 'UPDATE', 'hunter_lead', leadId, 'AI draft generated');
 }
 
-// Bulk import: the browser parses a CSV and posts up to 50 rows. Each row is audited
-// (website check), scored and, if AI drafting is configured, drafted - same as a single add.
-const bulkLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 40, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many bulk imports this hour. Try again later.' } });
-router.post('/hunter/leads/bulk', requireHunterAccess, bulkLimiter, async (req, res) => {
-  const u = req.user;
-  const rows = Array.isArray(req.body?.rows) ? req.body.rows : null;
-  if (!rows || !rows.length) return res.status(400).json({ error: 'No rows to import' });
-  if (rows.length > 50) return res.status(400).json({ error: 'Import up to 50 rows at a time' });
+// ---------- background jobs (BullMQ when Redis is available, in-process otherwise) ----------
+// A job's handler gets plain JSON data plus { progress }, and returns a result object.
+// The routes below only validate, enqueue and return 202 + a job id; the browser polls
+// GET /hunter/jobs/:id. Heavy work no longer holds an HTTP request open.
+
+const actorOf = (id) => db.prepare('SELECT id,name,role FROM users WHERE id=?').get(id) || { id };
+
+async function bulkImportJob({ rows, userId }, { progress }) {
+  const u = actorOf(userId);
   const result = { added: 0, skipped: [], drafted: 0 };
   for (let i = 0; i < rows.length; i++) {
+    await progress({ done: i, total: rows.length, message: `Auditing row ${i + 1} of ${rows.length}` });
     const b = rows[i] || {};
     const name = String(b.name || '').trim();
     if (!name) { result.skipped.push({ row: i + 1, reason: 'missing name' }); continue; }
@@ -192,6 +203,8 @@ router.post('/hunter/leads/bulk', requireHunterAccess, bulkLimiter, async (req, 
     if (!SIGNALS[b.signal_type]) b.signal_type = 'manual';
     const dncHit = ['email', 'phone', 'instagram'].map((k) => normalize(b[k])).filter(Boolean).find((v) => db.prepare('SELECT 1 FROM do_not_contact WHERE value=?').get(v));
     if (dncHit) { result.skipped.push({ row: i + 1, name, reason: 'on the do-not-contact list' }); continue; }
+    // Also keeps a job that BullMQ re-runs after a restart from importing the same rows twice.
+    if (db.prepare('SELECT 1 FROM hunter_leads WHERE LOWER(name)=? AND city=?').get(name.toLowerCase(), b.city || '')) { result.skipped.push({ row: i + 1, name, reason: 'already in your leads' }); continue; }
     let leadId;
     try {
       leadId = await insertScoredLead(b, u.id);
@@ -205,24 +218,40 @@ router.post('/hunter/leads/bulk', requireHunterAccess, bulkLimiter, async (req, 
       try { await draftForLead(leadId, u); result.drafted++; } catch (e) { /* lead still saved */ }
     }
   }
-  res.json(result);
+  await progress({ done: rows.length, total: rows.length, message: 'Done' });
+  await invalidate('hunter:');
+  return result;
+}
+jobs.register('bulk-import', bulkImportJob);
+
+// Bulk import: the browser parses a CSV and posts up to 200 rows; they are processed in the
+// background (website audit + score + optional AI draft per row).
+const bulkLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, limit: 40, message: 'Too many bulk imports this hour. Try again later.', prefix: 'hunter-bulk' });
+router.post('/hunter/leads/bulk', requireHunterAccess, bulkLimiter, async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+  if (!rows || !rows.length) return res.status(400).json({ error: 'No rows to import' });
+  if (rows.length > 200) return res.status(400).json({ error: 'Import up to 200 rows at a time' });
+  res.status(202).json({ job_id: await jobs.enqueue('bulk-import', { rows, userId: req.user.id }) });
 });
 
 // Looks up coordinates for leads that have none, using OpenStreetMap's free Nominatim
 // geocoder (business name + city only). Small businesses are often missing from it, so a
-// miss is normal; each lead is tried once. Max 8 per call to respect Nominatim's 1 req/sec rule.
+// miss is normal; each lead is tried once. Runs as a background job because Nominatim
+// allows about one request per second.
 const haversineKm = (a, b) => {
   const rad = (x) => (x * Math.PI) / 180;
   const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
   return 12742 * Math.asin(Math.sqrt(h));
 };
-router.post('/hunter/leads/locate', requireHunterAccess, async (req, res) => {
-  const city = String(req.body?.city || '');
+
+async function locateJob({ city }, { progress }) {
   const meta = CITIES[city];
-  if (!meta) return res.status(400).json({ error: 'Pick a city first' });
-  const rows = db.prepare('SELECT id,name FROM hunter_leads WHERE city=? AND lat IS NULL AND geo_tried=0 LIMIT 8').all(city);
+  if (!meta) throw new Error('Unknown city');
+  const rows = db.prepare('SELECT id,name FROM hunter_leads WHERE city=? AND lat IS NULL AND geo_tried=0 LIMIT 40').all(city);
   let located = 0;
-  for (const r of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    await progress({ done: i, total: rows.length, message: `Looking up ${r.name}` });
     let hit = null;
     try {
       const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(r.name + ', ' + city);
@@ -237,8 +266,24 @@ router.post('/hunter/leads/locate', requireHunterAccess, async (req, res) => {
     else db.prepare('UPDATE hunter_leads SET geo_tried=1 WHERE id=?').run(r.id);
     await new Promise((ok) => setTimeout(ok, 1100));
   }
+  await invalidate('hunter:');
   const remaining = db.prepare('SELECT COUNT(*) c FROM hunter_leads WHERE city=? AND lat IS NULL AND geo_tried=0').get(city).c;
-  res.json({ tried: rows.length, located, remaining });
+  return { tried: rows.length, located, remaining };
+}
+jobs.register('locate', locateJob);
+
+router.post('/hunter/leads/locate', requireHunterAccess, async (req, res) => {
+  const city = String(req.body?.city || '');
+  if (!CITIES[city]) return res.status(400).json({ error: 'Pick a city first' });
+  res.status(202).json({ job_id: await jobs.enqueue('locate', { city, userId: req.user.id }) });
+});
+
+// Poll a job's progress. Only the person who started it (or an admin) can see it.
+router.get('/hunter/jobs/:id', requireHunterAccess, async (req, res) => {
+  const job = await jobs.getJob(String(req.params.id));
+  if (!job) return res.status(404).json({ error: 'Job not found (it may have expired)' });
+  if (req.user.role !== 'Admin' && job.user_id !== req.user.id) return res.status(403).json({ error: 'Not your job' });
+  res.json({ id: job.id, name: job.name, state: job.state, progress: job.progress, result: job.result, error: job.error });
 });
 
 router.post('/hunter/leads/:id/draft', requireHunterAccess, aiLimiter, async (req, res) => {
@@ -344,7 +389,11 @@ router.put('/hunter/touches/:id/outcome', requireHunterAccess, (req, res) => {
 
 // ---------- dashboard ----------
 
-router.get('/hunter/dashboard', requireHunterAccess, (req, res) => {
+router.get('/hunter/dashboard', requireHunterAccess, async (req, res) => {
+  res.json(await cached('hunter:dashboard', 15, computeDashboard));
+});
+
+function computeDashboard() {
   const leads = db.prepare('SELECT * FROM hunter_leads').all().map(parseRow);
   const funnel = ['new', 'audited', 'outreach', 'replied', 'meeting', 'won'].map((s) => ({ status: s, count: leads.filter((l) => l.status === s).length }));
   const hot = leads.filter((l) => l.tier === 'hot' && !['won', 'lost', 'disqualified'].includes(l.status)).length;
@@ -356,8 +405,8 @@ router.get('/hunter/dashboard', requireHunterAccess, (req, res) => {
     .sort((a, b) => b.score - a.score)
     .slice(0, 6);
   const { cities, niches } = leadBreakdown();
-  res.json({ hot_leads: hot, drafts_to_approve: drafts, tasks_pending: tasksPending, approved_today: approvedToday, funnel, call_these_first: callThese, cities, niches });
-});
+  return { hot_leads: hot, drafts_to_approve: drafts, tasks_pending: tasksPending, approved_today: approvedToday, funnel, call_these_first: callThese, cities, niches };
+}
 
 // ---------- market (illustrative estimate, not live scraped data) ----------
 
@@ -390,9 +439,9 @@ function leadBreakdown() {
   return { cities, niches };
 }
 
-router.get('/hunter/market', requireHunterAccess, (req, res) => {
+router.get('/hunter/market', requireHunterAccess, async (req, res) => {
   const estimate = estimateMarket({ niche: req.query.niche || 'other', city: req.query.city || '', months: req.query.months });
-  const { cities, niches } = leadBreakdown();
+  const { cities, niches } = await cached('hunter:breakdown', 15, leadBreakdown);
   const cityMeta = CITIES[req.query.city];
   const points = cityMeta
     ? db.prepare('SELECT id,name,niche,score,tier,gmb_reviews,lat,lng FROM hunter_leads WHERE city=?').all(req.query.city)
@@ -402,7 +451,7 @@ router.get('/hunter/market', requireHunterAccess, (req, res) => {
 
 // ---------- hunts (automatic discovery via Apify's Google Maps actor) ----------
 
-const huntLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 15, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many hunt runs this hour. Try again later.' } });
+const huntLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, limit: 15, message: 'Too many hunt runs this hour. Try again later.', prefix: 'hunter-hunt' });
 
 router.get('/hunter/hunts', requireHunterAccess, (req, res) => {
   res.json({ rows: db.prepare('SELECT h.*, u.name created_by_name FROM hunter_hunts h LEFT JOIN users u ON u.id=h.created_by ORDER BY h.created_at DESC').all() });
@@ -437,21 +486,17 @@ router.delete('/hunter/hunts/:id', requireHunterAccess, (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/hunter/hunts/:id/run', requireHunterAccess, huntLimiter, async (req, res) => {
-  if (!process.env.APIFY_TOKEN) return res.status(400).json({ error: 'Automatic lead discovery is not configured on this server (no Apify token set)' });
-  const u = req.user;
-  const hunt = db.prepare('SELECT * FROM hunter_hunts WHERE id=?').get(Number(req.params.id));
-  if (!hunt) return res.status(404).json({ error: 'Not found' });
-
-  let places;
-  try {
-    places = await searchGoogleMaps({ searchTerm: NICHES[hunt.niche]?.label || hunt.niche, location: hunt.city, maxResults: 20 });
-  } catch (e) {
-    return res.status(502).json({ error: e.message });
-  }
+async function huntRunJob({ huntId, userId }, { progress }) {
+  const u = actorOf(userId);
+  const hunt = db.prepare('SELECT * FROM hunter_hunts WHERE id=?').get(huntId);
+  if (!hunt) throw new Error('Hunt not found');
+  await progress({ done: 0, total: 0, message: 'Searching Google Maps…' });
+  const places = await searchGoogleMaps({ searchTerm: NICHES[hunt.niche]?.label || hunt.niche, location: hunt.city, maxResults: 20 });
 
   let kept = 0;
-  for (const p of places) {
+  for (let i = 0; i < places.length; i++) {
+    const p = places[i];
+    await progress({ done: i, total: places.length, message: `Checking ${p.name || 'result'} (${i + 1} of ${places.length})` });
     if (!p.name) continue;
     const dup = db.prepare('SELECT 1 FROM hunter_leads WHERE LOWER(name)=? AND city=?').get(p.name.toLowerCase(), hunt.city);
     if (dup) continue;
@@ -495,7 +540,17 @@ router.post('/hunter/hunts/:id/run', requireHunterAccess, huntLimiter, async (re
 
   db.prepare('UPDATE hunter_hunts SET last_run_at=?, kept_count=?, found_count=? WHERE id=?').run(now(), kept, places.length, hunt.id);
   audit(u, 'UPDATE', 'hunter_hunt', hunt.id, `Run: kept ${kept} of ${places.length} found`);
-  res.json({ found: places.length, kept });
+  await progress({ done: places.length, total: places.length, message: 'Done' });
+  await invalidate('hunter:');
+  return { found: places.length, kept };
+}
+jobs.register('hunt-run', huntRunJob);
+
+router.post('/hunter/hunts/:id/run', requireHunterAccess, huntLimiter, async (req, res) => {
+  if (!process.env.APIFY_TOKEN) return res.status(400).json({ error: 'Automatic lead discovery is not configured on this server (no Apify token set)' });
+  const hunt = db.prepare('SELECT * FROM hunter_hunts WHERE id=?').get(Number(req.params.id));
+  if (!hunt) return res.status(404).json({ error: 'Not found' });
+  res.status(202).json({ job_id: await jobs.enqueue('hunt-run', { huntId: hunt.id, userId: req.user.id }) });
 });
 
 module.exports = router;

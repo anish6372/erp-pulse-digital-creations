@@ -46,7 +46,7 @@ function createApp() {
 
   app.use(express.json({ limit: '15mb' }));
 
-  app.get('/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+  app.get('/health', async (req, res) => res.json({ ok: true, time: new Date().toISOString(), redis: await require('./utils/redis').redisStatus() }));
 
   app.use('/uploads', express.static(UPLOADS, { maxAge: '7d' }));
 

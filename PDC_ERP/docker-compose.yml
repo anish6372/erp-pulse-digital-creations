@@ -4,10 +4,31 @@ services:
     image: ghcr.io/anish6372/pdc-erp-backend:latest
     restart: always
     env_file: ./backend/.env
+    environment:
+      # Redis powers background jobs (BullMQ), shared rate limits and a small cache.
+      # If Redis is unavailable the backend falls back to in-process versions of all three.
+      REDIS_URL: redis://redis:6379
     volumes:
       - backend_data:/app/data
       - backend_uploads:/app/uploads
       - backend_private:/app/private
+    depends_on:
+      - redis
+
+  # Internal only (no published port). Append-only file keeps queued jobs across restarts;
+  # memory is capped so it can't crowd out the app on a small instance. BullMQ needs
+  # "noeviction" so it never silently loses a queued job.
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "64mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   frontend:
     build: ./frontend
@@ -22,3 +43,4 @@ volumes:
   backend_data:
   backend_uploads:
   backend_private:
+  redis_data:

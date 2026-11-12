@@ -1,5 +1,5 @@
 const express = require('express');
-const rateLimit = require('express-rate-limit');
+const { makeLimiter } = require('../utils/limiter');
 const { db } = require('../db');
 const { now } = require('../utils/datetime');
 const { uid } = require('../utils/crypto');
@@ -75,7 +75,7 @@ router.post('/content', requireAuth, (req, res) => {
 // Generates drafts only - the browser shows them for a person to edit and save.
 const { generateCaption, generateScript, generateIdeas } = require('../utils/contentAI');
 const { usageSummary, isConfigured } = require('../utils/llm');
-const aiLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many AI requests this hour. Try again later.' } });
+const aiLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, limit: 60, message: 'Too many AI requests this hour. Try again later.', prefix: 'content-ai' });
 
 function aiItemFromBody(b) {
   const clientId = Number(b.client_id);
@@ -191,13 +191,7 @@ router.post('/content/review-link/:clientId/regenerate', requireAdmin, (req, res
 
 // ---------- public (no login): the client's review page ----------
 
-const publicLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests. Please try again later.' },
-});
+const publicLimiter = makeLimiter({ windowMs: 15 * 60 * 1000, limit: 120, message: 'Too many requests. Please try again later.', prefix: 'content-publicLimiter' });
 
 function linkFor(token) {
   if (!/^[A-Za-z0-9_-]{20,80}$/.test(String(token))) return null;

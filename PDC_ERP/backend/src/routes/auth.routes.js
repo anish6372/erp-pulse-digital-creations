@@ -1,5 +1,5 @@
 const express = require('express');
-const rateLimit = require('express-rate-limit');
+const { makeLimiter } = require('../utils/limiter');
 const { db } = require('../db');
 const { getSetting } = require('../db');
 const { uid, hash, passwordHash, verifyPassword } = require('../utils/crypto');
@@ -11,13 +11,7 @@ const { generateEmployeeCode } = require('../utils/employeeCode');
 
 const router = express.Router();
 
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many login attempts. Try again later.' },
-});
+const loginLimiter = makeLimiter({ windowMs: 15 * 60 * 1000, limit: 20, message: 'Too many login attempts. Try again later.', prefix: 'auth-loginLimiter' });
 
 function createLoginSession(u, res) {
   const token = uid();
@@ -73,13 +67,7 @@ function findUserByPhone(digits) {
   return rows.find((u) => last10Digits(u.phone) === digits);
 }
 
-const otpLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 5, // OTP sends cost real money per message - tighter than the password login limiter
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many OTP requests. Try again later.' },
-});
+const otpLimiter = makeLimiter({ windowMs: 15 * 60 * 1000, limit: 5, message: 'Too many OTP requests. Try again later.', prefix: 'auth-otpLimiter' });
 
 router.get('/auth/otp/config', (req, res) => {
   res.json({ enabled: !!(process.env.MSG91_AUTH_KEY && process.env.MSG91_OTP_TEMPLATE_ID) });

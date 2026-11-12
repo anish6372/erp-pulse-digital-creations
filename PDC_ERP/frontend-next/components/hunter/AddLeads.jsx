@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { api } from '../../legacy/lib/api.js';
+import { api, runJob } from '../../legacy/lib/api.js';
 import { toast } from '../../legacy/lib/dom.js';
 import Icon from '../Icon';
 import { CITIES, NICHES, PLATFORMS, SIGNALS } from './shared';
@@ -142,13 +142,11 @@ function BulkImport({ cfg, onAdded }) {
     let added = 0, drafted = 0;
     const skipped = [];
     try {
-      for (let i = 0; i < items.length; i += 10) {
-        setMsg({ text: `Auditing and scoring… ${Math.min(i + 10, items.length)} of ${items.length}` });
-        const r = await api('/api/hunter/leads/bulk', { method: 'POST', body: JSON.stringify({ rows: items.slice(i, i + 10) }) });
-        added += r.added;
-        drafted += r.drafted;
-        r.skipped.forEach((s) => skipped.push({ ...s, row: s.row + i }));
-      }
+      setMsg({ text: 'Queued…' });
+      const r = await runJob('/api/hunter/leads/bulk', { rows: items }, (p) => setMsg({ text: `${p.message || 'Working'} (${p.done || 0}/${p.total || items.length})` }));
+      added = r.added;
+      drafted = r.drafted;
+      r.skipped.forEach((s) => skipped.push(s));
     } catch (e) {
       skipped.push({ row: '-', reason: e.message || 'import stopped' });
     }

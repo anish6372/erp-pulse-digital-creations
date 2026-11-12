@@ -1,5 +1,5 @@
 const express = require('express');
-const rateLimit = require('express-rate-limit');
+const { makeLimiter } = require('../utils/limiter');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -62,13 +62,7 @@ This Agreement is governed by the laws of India.
 
 By signing below, the Employee confirms they have read, understood and agree to this Agreement.`;
 
-const publicLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests. Please try again later.' },
-});
+const publicLimiter = makeLimiter({ windowMs: 15 * 60 * 1000, limit: 100, message: 'Too many requests. Please try again later.', prefix: 'onboarding-publicLimiter' });
 
 // ---------- helpers ----------
 
