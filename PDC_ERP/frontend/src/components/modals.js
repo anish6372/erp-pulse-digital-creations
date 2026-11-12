@@ -228,6 +228,7 @@ export function openClientModal(id) {
       <div class="field"><label>Phone</label><input id="fc5" value="${esc(x?.phone || '')}"></div>
       <div class="field"><label>Email</label><input id="fc6" type="email" value="${esc(x?.email || '')}"></div>
       <div class="field full"><label>Address</label><textarea id="fc7">${esc(x?.address || '')}</textarea></div>
+      <div class="field full"><label>Brand voice (used by the AI writing tools)</label><textarea id="fc9" maxlength="1000" placeholder="e.g. Warm and playful, short sentences, a few emojis, never salesy. Speaks to young professionals.">${esc(x?.brand_voice || '')}</textarea></div>
       ${x ? `<div class="field"><label>Status</label><select id="fc8"><option value="1" ${x?.active !== 0 ? 'selected' : ''}>Active</option><option value="0" ${x?.active === 0 ? 'selected' : ''}>Inactive</option></select></div>` : ''}
     </div><button class="btn" style="margin-top:10px">${x ? 'Save Changes' : 'Save'}</button></form>`
   );
@@ -244,6 +245,7 @@ async function saveClient(e, id) {
     phone: $('fc5').value,
     email: $('fc6').value,
     address: $('fc7').value,
+    brand_voice: $('fc9').value,
   };
   if (id) b.active = Number($('fc8').value);
   await api(id ? '/api/clients/' + id : '/api/clients', { method: id ? 'PUT' : 'POST', body: JSON.stringify(b) });

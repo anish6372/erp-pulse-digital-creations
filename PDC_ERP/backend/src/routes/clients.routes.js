@@ -14,7 +14,7 @@ router.post('/clients', requireAdmin, (req, res) => {
   const admin = req.user;
   const b = req.body || {};
   const r = db
-    .prepare('INSERT INTO clients(name,short_name,address,business_type,contact_person,phone,email,created_at) VALUES(?,?,?,?,?,?,?,?)')
+    .prepare('INSERT INTO clients(name,short_name,address,business_type,contact_person,phone,email,brand_voice,created_at) VALUES(?,?,?,?,?,?,?,?,?)')
     .run(
       String(b.name || '').trim(),
       String(b.short_name || '').trim(),
@@ -23,6 +23,7 @@ router.post('/clients', requireAdmin, (req, res) => {
       String(b.contact_person || '').trim(),
       String(b.phone || '').trim(),
       String(b.email || '').trim(),
+      String(b.brand_voice || '').trim().slice(0, 1000),
       now()
     );
   audit(admin, 'CREATE', 'client', r.lastInsertRowid, b.name);
@@ -35,7 +36,7 @@ router.put('/clients/:id', requireAdmin, (req, res) => {
   const existing = db.prepare('SELECT * FROM clients WHERE id=?').get(id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   const b = req.body || {};
-  const fields = ['name', 'short_name', 'address', 'business_type', 'contact_person', 'phone', 'email'];
+  const fields = ['name', 'short_name', 'address', 'business_type', 'contact_person', 'phone', 'email', 'brand_voice'];
   const vals = fields.map((k) => (b[k] !== undefined ? String(b[k]).trim() : existing[k]));
   const active = b.active !== undefined ? (b.active === 0 || b.active === false ? 0 : 1) : existing.active;
   db.prepare(`UPDATE clients SET ${fields.map((k) => k + '=?').join(',')},active=? WHERE id=?`).run(...vals, active, id);

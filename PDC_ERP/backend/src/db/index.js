@@ -611,6 +611,37 @@ for (const [k, v] of Object.entries(defaultSettings)) {
 }
 if (getSetting('salary_divisor', '') === '30') setSetting('salary_divisor', 'working_days');
 
+// ---- AI features (content assistant) ----
+try { db.exec("ALTER TABLE clients ADD COLUMN brand_voice TEXT DEFAULT ''"); } catch (e) {}
+db.exec(`
+CREATE TABLE IF NOT EXISTS ai_usage(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER,
+ feature TEXT NOT NULL,
+ model TEXT NOT NULL,
+ input_tokens INTEGER NOT NULL DEFAULT 0,
+ output_tokens INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL
+);
+-- Full-text index over each content item's title, caption and script. rowid = content_items.id,
+-- so a search hit maps straight back to the item. This is the "retrieval" half of the content
+-- assistant's RAG: past approved work is found by keyword relevance (BM25) and fed to the model.
+CREATE VIRTUAL TABLE IF NOT EXISTS content_fts USING fts5(title, caption, script, tokenize='porter');
+CREATE TRIGGER IF NOT EXISTS content_fts_ai AFTER INSERT ON content_items BEGIN
+  INSERT INTO content_fts(rowid,title,caption,script) VALUES (new.id,new.title,new.caption,new.script);
+END;
+CREATE TRIGGER IF NOT EXISTS content_fts_au AFTER UPDATE ON content_items BEGIN
+  DELETE FROM content_fts WHERE rowid=old.id;
+  INSERT INTO content_fts(rowid,title,caption,script) VALUES (new.id,new.title,new.caption,new.script);
+END;
+CREATE TRIGGER IF NOT EXISTS content_fts_ad AFTER DELETE ON content_items BEGIN
+  DELETE FROM content_fts WHERE rowid=old.id;
+END;
+`);
+if (db.prepare('SELECT COUNT(*) c FROM content_fts').get().c === 0) {
+  db.exec('INSERT INTO content_fts(rowid,title,caption,script) SELECT id,title,caption,script FROM content_items');
+}
+
 function seed() {
   const count = db.prepare('SELECT COUNT(*) c FROM users').get().c;
   const now = () => new Date().toISOString();

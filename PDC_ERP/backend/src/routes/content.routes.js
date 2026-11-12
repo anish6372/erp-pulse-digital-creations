@@ -71,6 +71,54 @@ router.post('/content', requireAuth, (req, res) => {
   res.status(201).json({ id: r.lastInsertRowid });
 });
 
+// ---------- AI assistant (captions, scripts, monthly ideas) ----------
+// Generates drafts only - the browser shows them for a person to edit and save.
+const { generateCaption, generateScript, generateIdeas } = require('../utils/contentAI');
+const { usageSummary, isConfigured } = require('../utils/llm');
+const aiLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many AI requests this hour. Try again later.' } });
+
+function aiItemFromBody(b) {
+  const clientId = Number(b.client_id);
+  const title = String(b.title || '').trim();
+  if (!clientId) throw Object.assign(new Error('Choose a client first'), { status: 400 });
+  if (!title) throw Object.assign(new Error('Add a title first so the AI knows what to write about'), { status: 400 });
+  return { client_id: clientId, title, kind: KINDS.includes(b.kind) ? b.kind : 'Reel', script: String(b.script || ''), caption: String(b.caption || '') };
+}
+const aiFail = (res, e) => res.status(e.status || 500).json({ error: e.message || 'AI request failed' });
+
+router.get('/content/ai/status', requireAuth, (req, res) => {
+  res.json({ enabled: isConfigured(), ...(req.user.role === 'Admin' ? { usage: usageSummary() } : {}) });
+});
+
+router.post('/content/ai/caption', requireAuth, aiLimiter, async (req, res) => {
+  try {
+    res.json(await generateCaption({ item: aiItemFromBody(req.body || {}), userId: req.user.id }));
+  } catch (e) {
+    aiFail(res, e);
+  }
+});
+
+router.post('/content/ai/script', requireAuth, aiLimiter, async (req, res) => {
+  try {
+    res.json(await generateScript({ item: aiItemFromBody(req.body || {}), userId: req.user.id }));
+  } catch (e) {
+    aiFail(res, e);
+  }
+});
+
+router.post('/content/ai/ideas', requireAuth, aiLimiter, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const clientId = Number(b.client_id);
+    if (!clientId) return res.status(400).json({ error: 'Choose a client first' });
+    const month = /^\d{4}-\d{2}$/.test(b.month || '') ? b.month : now().slice(0, 7);
+    const count = Math.min(Math.max(Number(b.count) || 8, 1), 15);
+    res.json(await generateIdeas({ clientId, month, count, theme: String(b.theme || '').slice(0, 200), userId: req.user.id }));
+  } catch (e) {
+    aiFail(res, e);
+  }
+});
+
 router.put('/content/:id', requireAuth, (req, res) => {
   const u = req.user;
   const id = Number(req.params.id);

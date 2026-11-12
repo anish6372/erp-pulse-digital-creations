@@ -5,6 +5,7 @@ import { $, esc, initials, toast, openModal, closeModal, dateNow, kpi, animateCo
 import { icon } from '../lib/icons.js';
 
 let data = { items: [], stages: [], kinds: [] };
+let ai = { enabled: false, usage: null }; // content AI assistant availability (+ usage for admins)
 let clientFilter = 0; // 0 = all clients
 let view = 'board'; // 'board' | 'calendar'
 let cursor = dateNow().slice(0, 7); // YYYY-MM shown in calendar view
@@ -18,6 +19,11 @@ export async function renderContent() {
   } catch (e) {
     $('page-content').innerHTML = `<div class="card"><div class="err">Content could not load: ${esc(e.message)}</div></div>`;
     return;
+  }
+  try {
+    ai = await api('/api/content/ai/status');
+  } catch (e) {
+    ai = { enabled: false, usage: null };
   }
   paint();
 }
@@ -46,12 +52,20 @@ function paint() {
       <div class="sectionHead">
         <div class="seg" style="margin:0"><button class="${view === 'board' ? 'active' : ''}" data-v="board">Board</button><button class="${view === 'calendar' ? 'active' : ''}" data-v="calendar">Calendar</button></div>
         <div class="pnl">${
+          ai.enabled ? `<button class="btn alt" id="aiIdeasBtn">${icon('send')}<span>AI ideas</span></button>` : ''
+        }${
           isAdmin() && clientFilter ? `<button class="btn alt" id="linkBtn">${icon('link')}<span>Client review link</span></button>` : ''
         }<button class="btn" id="addItemBtn">${icon('plus')}<span>New content</span></button></div>
       </div>
       ${view === 'board' ? boardHtml() : calendarHtml()}
-    </div>`;
+    </div>
+    ${
+      ai.usage
+        ? `<div class="mini" style="margin-top:8px">AI usage this month: ${ai.usage.tokens_used.toLocaleString('en-IN')} tokens across ${ai.usage.by_feature.reduce((a, f) => a + f.calls, 0)} request(s)${ai.usage.cap ? ' (limit ' + ai.usage.cap.toLocaleString('en-IN') + ')' : ''}.</div>`
+        : ''
+    }`;
   animateCountUps($('page-content'));
+  if ($('aiIdeasBtn')) $('aiIdeasBtn').onclick = openIdeas;
 
   $('page-content')
     .querySelectorAll('[data-c]')
@@ -215,8 +229,8 @@ function openItem(id, presetDate = '') {
       <div class="field"><label>Assigned to</label><select id="ci6" ${canEditAll && isAdmin() ? '' : 'disabled'}><option value="">Nobody yet</option>${users
         .map((u) => `<option value="${u.id}" ${(it ? it.assignee_id : state.me.id) === u.id ? 'selected' : ''}>${esc(u.name)}</option>`)
         .join('')}</select></div>
-      <div class="field full"><label>Script / shot list</label><textarea id="ci7" placeholder="Hook, shots, voiceover, on-screen text">${esc(it?.script || '')}</textarea></div>
-      <div class="field full"><label>Caption</label><textarea id="ci8" style="min-height:70px">${esc(it?.caption || '')}</textarea></div>
+      <div class="field full"><label>Script / shot list${ai.enabled ? ' <button type="button" class="btn alt" id="aiScript" style="padding:2px 9px;font-size:11px;margin-left:8px">Write with AI</button>' : ''}</label><textarea id="ci7" placeholder="Hook, shots, voiceover, on-screen text">${esc(it?.script || '')}</textarea></div>
+      <div class="field full"><label>Caption${ai.enabled ? ' <button type="button" class="btn alt" id="aiCaption" style="padding:2px 9px;font-size:11px;margin-left:8px">Write with AI</button>' : ''}</label><textarea id="ci8" style="min-height:70px">${esc(it?.caption || '')}</textarea></div>
       <div class="field full"><label>Video / draft link (Drive, etc.)</label><input id="ci9" type="url" value="${esc(it?.media_link || '')}" placeholder="https://drive.google.com/..."></div>
     </div>
     ${it?.review_note ? `<div class="notice" style="margin-top:10px"><b>${esc(it.reviewed_by || 'Client')}</b> said: ${esc(it.review_note)}</div>` : ''}
@@ -226,6 +240,8 @@ function openItem(id, presetDate = '') {
     { wide: true }
   );
   $('itemForm').addEventListener('submit', (e) => saveItem(e, id));
+  if ($('aiCaption')) $('aiCaption').onclick = (e) => aiWrite('caption', e.currentTarget);
+  if ($('aiScript')) $('aiScript').onclick = (e) => aiWrite('script', e.currentTarget);
   if ($('sendReview'))
     $('sendReview').onclick = async () => {
       if (!$('ci9').value.trim() && !$('ci7').value.trim()) return toast('Add a draft link or script so the client has something to review');
@@ -281,6 +297,106 @@ async function saveItem(e, id) {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+
+// ---- AI assistant: drafts only, a person reviews before anything is saved ----
+
+const AI_NOTE = 'AI draft - please review and edit before saving.';
+
+function appendDraft(el, text) {
+  // Never overwrite what someone already typed: add the draft underneath instead.
+  el.value = el.value.trim() ? el.value.trim() + '\n\n--- AI draft ---\n' + text : text;
+  el.focus();
+}
+
+async function aiWrite(kind, btn) {
+  const body = {
+    client_id: Number($('ci1').value),
+    title: $('ci2').value,
+    kind: $('ci3').value,
+    script: $('ci7').value,
+    caption: $('ci8').value,
+  };
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Writing…';
+  try {
+    const r = await api('/api/content/ai/' + kind, { method: 'POST', body: JSON.stringify(body) });
+    if (kind === 'caption') {
+      appendDraft($('ci8'), [r.caption, r.cta, (r.hashtags || []).join(' ')].filter(Boolean).join('\n\n'));
+      toast(r.used_examples?.length ? `Caption drafted using ${r.used_examples.length} past approved example(s). ${AI_NOTE}` : AI_NOTE);
+    } else {
+      const parts = [r.hook && 'Hook: ' + r.hook, r.script, r.shots?.length && 'Shots:\n' + r.shots.map((s, i) => `${i + 1}. ${s}`).join('\n'), r.on_screen_text?.length && 'On-screen text: ' + r.on_screen_text.join(' / ')];
+      appendDraft($('ci7'), parts.filter(Boolean).join('\n\n'));
+      toast(AI_NOTE);
+    }
+  } catch (e) {
+    toast(e.message || 'AI request failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+function openIdeas() {
+  const cl = clients();
+  const month = dateNow().slice(0, 7);
+  openModal(
+    'AI content ideas',
+    `<div class="mini" style="margin-bottom:10px">Suggests ideas for one client using their brand voice and what has worked before. Nothing is added until you pick ideas and confirm.</div>
+    <div class="fgrid">
+      <div class="field"><label>Client</label><select id="ai1">${cl.map((c) => `<option value="${c.id}" ${clientFilter === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Month</label><input id="ai2" type="month" value="${month}"></div>
+      <div class="field"><label>How many</label><input id="ai3" type="number" min="1" max="15" value="8"></div>
+      <div class="field"><label>Theme (optional)</label><input id="ai4" placeholder="e.g. monsoon menu, weekend brunch"></div>
+    </div>
+    <button class="btn" id="aiGo" style="margin-top:10px">Suggest ideas</button>
+    <div id="aiOut" style="margin-top:14px"></div>`,
+    { wide: true }
+  );
+  $('aiGo').onclick = async () => {
+    const btn = $('aiGo');
+    btn.disabled = true;
+    btn.textContent = 'Thinking…';
+    $('aiOut').innerHTML = '';
+    try {
+      const r = await api('/api/content/ai/ideas', {
+        method: 'POST',
+        body: JSON.stringify({ client_id: Number($('ai1').value), month: $('ai2').value, count: Number($('ai3').value), theme: $('ai4').value }),
+      });
+      const clientId = Number($('ai1').value);
+      $('aiOut').innerHTML = `<div class="mini" style="margin-bottom:8px">${esc(AI_NOTE)} Untick any you don't want.</div>${r.ideas
+        .map(
+          (i, n) => `<label class="statline" style="align-items:flex-start;gap:10px;cursor:pointer"><span><input type="checkbox" data-idea="${n}" checked> <b>${esc(i.title)}</b> <span class="badge gray">${esc(i.kind)}</span><div class="mini">${esc(i.hook)}${i.why ? ' &middot; ' + esc(i.why) : ''}</div></span></label>`
+        )
+        .join('')}<button class="btn success" id="aiAdd" style="margin-top:10px">Add selected as Idea cards</button>`;
+      $('aiAdd').onclick = async () => {
+        const picked = [...document.querySelectorAll('[data-idea]:checked')].map((c) => r.ideas[Number(c.dataset.idea)]);
+        if (!picked.length) return toast('Pick at least one idea');
+        $('aiAdd').disabled = true;
+        try {
+          for (const i of picked) {
+            await api('/api/content', {
+              method: 'POST',
+              body: JSON.stringify({ client_id: clientId, title: i.title, kind: i.kind, stage: 'Idea', script: [i.hook && 'Hook: ' + i.hook, i.why && 'Why: ' + i.why].filter(Boolean).join('\n') }),
+            });
+          }
+          closeModal();
+          toast(`${picked.length} idea card(s) added`);
+          await renderContent();
+        } catch (e) {
+          toast(e.message || 'Could not add the ideas');
+          $('aiAdd').disabled = false;
+        }
+      };
+    } catch (e) {
+      $('aiOut').innerHTML = `<div class="err">${esc(e.message || 'AI request failed')}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Suggest ideas';
+    }
+  };
 }
 
 // ---- client review link ----
