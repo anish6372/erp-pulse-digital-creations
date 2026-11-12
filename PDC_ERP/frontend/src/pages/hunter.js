@@ -178,11 +178,86 @@ async function loadMarket() {
       ${kpi('Est. monthly spend', money(m.monthly_spend_estimate), 'across the category')}
       ${kpi('Avg project value', money(m.avg_project_value_estimate), '')}
     </div>
-    <div class="card soft">
+    <div class="card soft" style="margin-bottom:12px">
       <div class="statline"><span>Up for grabs (no retained agency, est.)</span><span><b>${money(m.up_for_grabs_monthly_estimate)}</b>/month</span></div>
       <div class="statline"><span>Category growth (est.)</span><span>${m.growth_pct}% / year</span></div>
       <div class="statline"><span>Suggested pitch angle</span><span>${esc(m.suggested_pitch)}</span></div>
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <h3 style="margin-bottom:6px">Where your leads actually are</h3>
+      <div class="mini" style="margin-bottom:10px">Real data from the leads you've added in this module - marker size is lead count, color is the hottest tier found there. Cities with no leads yet show as a faint outline. Click a marker to jump to Leads for that city.</div>
+      ${mapSvg(d.cities)}
+    </div>
+    <div class="grid g2" style="align-items:start">
+      <div class="card">
+        <h3 style="margin-bottom:8px">Performance by Location</h3>
+        ${breakdownTable(d.cities, 'city', (c) => `${esc(c.city)} <span class="mini">P${c.priority}</span>`)}
+      </div>
+      <div class="card">
+        <h3 style="margin-bottom:8px">Performance by Niche</h3>
+        ${breakdownTable(d.niches, 'niche', (n) => esc(n.niche_label))}
+      </div>
     </div>`;
+
+  $('page-hunter')
+    .querySelectorAll('[data-city-marker]')
+    .forEach((el) => {
+      el.onclick = async () => {
+        filters = { ...filters, q: el.dataset.cityMarker };
+        tab = 'leads';
+        await switchTab('leads');
+      };
+    });
+}
+
+function breakdownTable(rows, key, labelFn) {
+  const sorted = [...rows].sort((a, b) => b.lead_count - a.lead_count);
+  if (!sorted.some((r) => r.lead_count > 0)) return '<div class="empty">No leads yet - add some to see this breakdown.</div>';
+  return `<div class="tableWrap"><table class="table"><thead><tr><th>${key === 'city' ? 'Location' : 'Niche'}</th><th>Leads</th><th>Hot</th><th>Warm</th><th>Parked</th><th>Avg score</th></tr></thead><tbody>${sorted
+    .filter((r) => r.lead_count > 0)
+    .map((r) => `<tr><td>${labelFn(r)}</td><td>${r.lead_count}</td><td>${r.hot}</td><td>${r.warm}</td><td>${r.parked}</td><td>${r.avg_score ?? '—'}</td></tr>`)
+    .join('')}</tbody></table></div>`;
+}
+
+// Real lat/lng per city, no real per-business coordinates (we only know a lead's city) -
+// an honest city-level scatter, not a fabricated street map.
+function mapSvg(cities) {
+  const W = 820,
+    H = 380,
+    PAD = 46;
+  const lonMin = -8,
+    lonMax = 110,
+    latMin = -3,
+    latMax = 56;
+  const px = (lng) => PAD + ((lng - lonMin) / (lonMax - lonMin)) * (W - 2 * PAD);
+  const py = (lat) => PAD + ((latMax - lat) / (latMax - latMin)) * (H - 2 * PAD);
+  const grid = [];
+  for (let i = 0; i <= 6; i++) {
+    const gx = PAD + (i / 6) * (W - 2 * PAD);
+    grid.push(`<line x1="${gx}" y1="${PAD}" x2="${gx}" y2="${H - PAD}" stroke="var(--line)" stroke-width="1"/>`);
+  }
+  for (let i = 0; i <= 4; i++) {
+    const gy = PAD + (i / 4) * (H - 2 * PAD);
+    grid.push(`<line x1="${PAD}" y1="${gy}" x2="${W - PAD}" y2="${gy}" stroke="var(--line)" stroke-width="1"/>`);
+  }
+  const markers = cities
+    .map((c) => {
+      const x = px(c.lng);
+      const y = py(c.lat);
+      const has = c.lead_count > 0;
+      const r = has ? 8 + Math.min(c.lead_count, 8) * 2.5 : 7;
+      const color = !has ? 'var(--muted)' : c.hot > 0 ? 'var(--danger)' : c.warm > 0 ? 'var(--warn)' : 'var(--muted)';
+      const fillOpacity = has ? 0.85 : 0.12;
+      return `<g data-city-marker="${esc(c.city)}" style="cursor:pointer">
+        <circle cx="${x}" cy="${y}" r="${r}" fill="${color}" fill-opacity="${fillOpacity}" stroke="${color}" stroke-width="1.5"><title>${esc(c.city)}: ${c.lead_count} lead(s)${
+        has ? `, avg score ${c.avg_score}` : ', no leads yet'
+      }</title></circle>
+        <text x="${x}" y="${y - r - 5}" text-anchor="middle" font-size="11" fill="var(--ink)" style="font-weight:600">${esc(c.city)}</text>
+        ${has ? `<text x="${x}" y="${y + 3}" text-anchor="middle" font-size="10" fill="#fff" style="font-weight:700">${c.lead_count}</text>` : ''}
+      </g>`;
+    })
+    .join('');
+  return `<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;background:var(--panel);border-radius:10px">${grid.join('')}${markers}</svg></div>`;
 }
 
 // ---------- leads ----------

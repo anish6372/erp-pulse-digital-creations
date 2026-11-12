@@ -13,16 +13,18 @@ const NICHES = {
   other: { label: 'Other', tier: 3, services: ['Content creation', 'Meta ads'] },
 };
 
+// Real coordinates (approximate city centre), used to plot the Market tab's map - not
+// fictional positions, just city-level rather than per-business.
 const CITIES = {
-  Bangalore: { priority: 1 },
-  Mumbai: { priority: 2 },
-  'Delhi NCR': { priority: 2 },
-  Hyderabad: { priority: 2 },
-  Pune: { priority: 2 },
-  Chennai: { priority: 2 },
-  Dubai: { priority: 3 },
-  Singapore: { priority: 3 },
-  London: { priority: 3 },
+  Bangalore: { priority: 1, lat: 12.97, lng: 77.59 },
+  Mumbai: { priority: 2, lat: 19.08, lng: 72.88 },
+  'Delhi NCR': { priority: 2, lat: 28.61, lng: 77.21 },
+  Hyderabad: { priority: 2, lat: 17.38, lng: 78.49 },
+  Pune: { priority: 2, lat: 18.52, lng: 73.86 },
+  Chennai: { priority: 2, lat: 13.08, lng: 80.27 },
+  Dubai: { priority: 3, lat: 25.2, lng: 55.27 },
+  Singapore: { priority: 3, lat: 1.35, lng: 103.82 },
+  London: { priority: 3, lat: 51.51, lng: -0.13 },
 };
 const PRIORITY = { 1: { label: 'Bangalore', weight: 1.0 }, 2: { label: 'Pan India', weight: 0.85 }, 3: { label: 'Global', weight: 0.7 } };
 const priorityOf = (city) => CITIES[city]?.priority || 2;

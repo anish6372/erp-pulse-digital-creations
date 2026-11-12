@@ -10,7 +10,7 @@ const { audit } = require('../utils/audit');
 const { requireAuth, requireAdminOrDept } = require('../middleware/auth');
 const { analyzeWebsite } = require('../utils/websiteSignals');
 const { generateHunterReport } = require('../utils/prospectAI');
-const { NICHES, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
+const { NICHES, CITIES, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
 
 const router = express.Router();
 const requireHunterAccess = requireAdminOrDept('Sales');
@@ -284,9 +284,39 @@ router.get('/hunter/dashboard', requireHunterAccess, (req, res) => {
 
 // ---------- market (illustrative estimate, not live scraped data) ----------
 
+// Real breakdown of the leads actually in this account - by city (for the map and the
+// location table) and by niche - as opposed to the estimate above, which is a benchmark
+// guess, not drawn from this data at all.
+function leadBreakdown() {
+  const leads = db.prepare('SELECT niche, city, score, tier FROM hunter_leads').all();
+  const by = (keyFn) => {
+    const groups = {};
+    for (const l of leads) {
+      const key = keyFn(l);
+      if (!key) continue;
+      (groups[key] = groups[key] || []).push(l);
+    }
+    return groups;
+  };
+  const stat = (rows) => ({
+    lead_count: rows.length,
+    avg_score: rows.length ? Math.round(rows.reduce((a, r) => a + r.score, 0) / rows.length) : null,
+    hot: rows.filter((r) => r.tier === 'hot').length,
+    warm: rows.filter((r) => r.tier === 'warm').length,
+    parked: rows.filter((r) => r.tier === 'parked').length,
+  });
+  const byCity = by((l) => l.city);
+  const byNiche = by((l) => l.niche);
+
+  const cities = Object.entries(CITIES).map(([city, c]) => ({ city, priority: c.priority, lat: c.lat, lng: c.lng, ...stat(byCity[city] || []) }));
+  const niches = Object.entries(NICHES).map(([key, n]) => ({ niche: key, niche_label: n.label, ...stat(byNiche[key] || []) }));
+  return { cities, niches };
+}
+
 router.get('/hunter/market', requireHunterAccess, (req, res) => {
   const estimate = estimateMarket({ niche: req.query.niche || 'other', city: req.query.city || '', months: req.query.months });
-  res.json({ estimate, note: 'Illustrative estimate from category benchmarks, not live scraped market data.' });
+  const { cities, niches } = leadBreakdown();
+  res.json({ estimate, cities, niches, note: 'Illustrative estimate from category benchmarks, not live scraped market data. City and niche breakdowns below are your real leads.' });
 });
 
 module.exports = router;
