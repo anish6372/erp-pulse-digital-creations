@@ -5,6 +5,15 @@ export const esc = (s) =>
 
 export const dateNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 
+// Someone pasting a Drive link often skips "https://" - without it, the href is treated
+// as a path relative to our own site instead of an external link, so clicking it 404s
+// instead of opening Drive (copy-pasting into the address bar works because the browser
+// assumes https:// there, which is why that "fix" looked like it worked).
+export const externalUrl = (u) => {
+  const v = String(u || '').trim();
+  return v && !/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(v) ? 'https://' + v : v;
+};
+
 export const initials = (n) =>
   String(n || '')
     .split(' ')

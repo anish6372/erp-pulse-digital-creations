@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, toast, confirmDialog } from '../lib/dom.js';
+import { $, esc, toast, confirmDialog, externalUrl } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { openMeetingModal } from '../components/modals.js';
 
@@ -46,7 +46,7 @@ async function loadMeetings() {
       </div>
     </div>
     <div class="pnl">
-      ${!isPast ? `<a class="btn success" href="${esc(m.meeting_link)}" target="_blank" rel="noopener">${icon('link')}<span>Join</span></a>` : `<span class="badge gray">Ended</span>`}
+      ${!isPast ? `<a class="btn success" href="${esc(externalUrl(m.meeting_link))}" target="_blank" rel="noopener">${icon('link')}<span>Join</span></a>` : `<span class="badge gray">Ended</span>`}
       ${admin ? `<button class="btn alt" data-edit-meeting="${m.id}">Edit</button><button class="btn danger" data-cancel-meeting="${m.id}">Cancel</button>` : ''}
     </div>
   </div>`;

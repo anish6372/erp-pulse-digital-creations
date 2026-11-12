@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, dateNow, initials, status, kpi, toast, animateCountUps } from '../lib/dom.js';
+import { $, esc, dateNow, initials, status, kpi, toast, animateCountUps, externalUrl } from '../lib/dom.js';
 import { refresh, renderPage } from '../router.js';
 import { openReportModal, openLeaveModal } from '../components/modals.js';
 import { donutChart, barSpark, segDonut, multiLine } from '../lib/charts.js';
@@ -42,7 +42,7 @@ function nextMeetingCard(m) {
     <div class="meeting-main"><div class="meeting-icon">${icon('meetings')}</div><div><b>${esc(m.title)}</b><div class="mini">Hosted by ${esc(m.host_name)} &bull; ${
     m.duration_minutes
   } min</div></div></div>
-    <a class="btn success" style="margin-top:10px;width:100%" href="${esc(m.meeting_link)}" target="_blank" rel="noopener">${icon('link')}<span>Join Meeting</span></a>
+    <a class="btn success" style="margin-top:10px;width:100%" href="${esc(externalUrl(m.meeting_link))}" target="_blank" rel="noopener">${icon('link')}<span>Join Meeting</span></a>
   </div>`;
 }
 

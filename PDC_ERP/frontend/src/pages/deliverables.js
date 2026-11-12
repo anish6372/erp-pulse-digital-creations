@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, status } from '../lib/dom.js';
+import { $, esc, status, externalUrl } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 
 let cache = [];
@@ -66,8 +66,8 @@ function renderList() {
                   (r) => `<div class="statline" style="flex-direction:column;align-items:flex-start;gap:7px;padding:10px 0">
               <div class="mini wrap">${esc(r.work_text)} &bull; ${r.hours}h &bull; ${esc(r.work_date)}</div>
               <div class="pnl">
-                ${r.work_drive_link ? linkChip(r.work_drive_link, 'Work Drive') : ''}
-                ${r.poster_drive_link ? linkChip(r.poster_drive_link, 'Poster') : ''}
+                ${r.work_drive_link ? linkChip(externalUrl(r.work_drive_link), 'Work Drive') : ''}
+                ${r.poster_drive_link ? linkChip(externalUrl(r.poster_drive_link), 'Poster') : ''}
                 ${r.attachment_path ? linkChip(r.attachment_path, r.attachment_name || 'Attachment') : ''}
                 ${!r.work_drive_link && !r.poster_drive_link && !r.attachment_path ? '<span class="mini">No links attached to this submission.</span>' : ''}
               </div>

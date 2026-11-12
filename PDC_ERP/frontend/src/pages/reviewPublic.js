@@ -1,6 +1,6 @@
 // Public, login-free page where a cafe owner reviews content. Reached via the private link:
 //   <frontend>/#/review/<token>
-import { $, esc } from '../lib/dom.js';
+import { $, esc, externalUrl } from '../lib/dom.js';
 
 let token = '';
 let who = '';
@@ -84,7 +84,7 @@ function itemCard(i, actionable) {
   return `<div class="rv-card rv-item">
     <div class="lead-top"><h3 class="rv-t">${esc(i.title)}</h3><span class="badge gray">${esc(i.kind)}</span></div>
     <div class="mini">${i.scheduled_date ? "Planned for " + esc(nice(i.scheduled_date)) : "No planned date"} ${status}</div>
-    ${i.media_link ? `<p><a class="btn alt" href="${esc(i.media_link)}" target="_blank" rel="noopener">Watch the draft</a></p>` : '<p class="mini">No video link attached yet.</p>'}
+    ${i.media_link ? `<p><a class="btn alt" href="${esc(externalUrl(i.media_link))}" target="_blank" rel="noopener">Watch the draft</a></p>` : '<p class="mini">No video link attached yet.</p>'}
     ${i.script ? `<div class="rv-label">Script</div><div class="rv-text">${esc(i.script)}</div>` : ''}
     ${i.caption ? `<div class="rv-label">Caption</div><div class="rv-text">${esc(i.caption)}</div>` : ''}
     ${
