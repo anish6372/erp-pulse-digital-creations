@@ -68,10 +68,12 @@ export async function renderHunter() {
 function paintShell() {
   $('page-hunter').innerHTML = `<div class="title"><h1>Client Hunter</h1><p>A scored prospect pipeline for marketing outreach - every message is drafted, never auto-sent, and checked against the do-not-contact list.</p></div>
   ${cfg.enabled === false ? '<div class="notice warn">AI drafting isn\'t configured (no Anthropic API key set). Leads can still be added and scored - you just won\'t get AI-drafted outreach messages.</div>' : ''}
+  ${cfg.hunts_enabled === false ? '<div class="notice warn">Automatic lead discovery isn\'t configured (no Apify token set). Add leads by hand in the meantime - everything else still works.</div>' : ''}
   <div class="pnl" style="margin-bottom:14px;flex-wrap:wrap">
-    ${tabBtn('dashboard', 'Dashboard')}${tabBtn('market', 'Market')}${tabBtn('leads', 'Leads')}${tabBtn('approvals', 'Approvals')}${tabBtn('tasks', 'Tasks')}${tabBtn('add', 'Add Lead')}${
-    isAdmin() ? tabBtn('compliance', 'Compliance') : ''
-  }
+    ${tabBtn('dashboard', 'Dashboard')}${tabBtn('market', 'Market')}${tabBtn('leads', 'Leads')}${tabBtn('approvals', 'Approvals')}${tabBtn('tasks', 'Tasks')}${tabBtn('add', 'Add Lead')}${tabBtn(
+    'hunts',
+    'Hunts'
+  )}${isAdmin() ? tabBtn('compliance', 'Compliance') : ''}
   </div>
   <div id="hunterBody"></div>`;
   $('page-hunter')
@@ -101,6 +103,7 @@ async function loadTab() {
     else if (tab === 'approvals') await paintTouches('draft', 'approvals');
     else if (tab === 'tasks') await paintTouches('approved', 'tasks');
     else if (tab === 'add') paintAdd();
+    else if (tab === 'hunts') await paintHunts();
     else if (tab === 'compliance') await paintCompliance();
   } catch (e) {
     body.innerHTML = `<div class="card"><div class="err">Could not load this tab: ${esc(e.message)}</div></div>`;
@@ -555,6 +558,85 @@ async function logOutcome(id, outcome) {
     await loadTab();
   } catch (e) {
     toast(e.message || 'Could not log that outcome');
+  }
+}
+
+// ---------- hunts (automatic discovery) ----------
+
+async function paintHunts() {
+  const d = await api('/api/hunter/hunts');
+  renderHunts(d.rows || []);
+}
+
+function renderHunts(rows) {
+  $('hunterBody').innerHTML = `<div class="card" style="margin-bottom:14px">
+    <h3 style="margin-bottom:8px">New Hunt</h3>
+    <div class="mini" style="margin-bottom:10px">Each hunt searches Google Maps for a niche in a location and keeps only businesses showing a buying signal (new/few reviews, no website, or under 4.0 rating).</div>
+    <form id="huntForm" class="row" style="gap:8px;flex-wrap:wrap">
+      <select id="huNiche">${Object.entries(NICHES).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select>
+      <select id="huCity">${CITIES.map((c) => `<option>${esc(c)}</option>`).join('')}</select>
+      <button class="btn" ${cfg.hunts_enabled === false ? 'disabled' : ''}>${icon('plus')}<span>Add hunt</span></button>
+    </form>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:8px">Hunts</h3>
+    ${
+      rows.length
+        ? `<div class="tableWrap"><table class="table"><thead><tr><th>Niche</th><th>Location</th><th>Last run</th><th>Found</th><th>Kept</th><th></th></tr></thead><tbody>${rows
+            .map(
+              (h) =>
+                `<tr><td>${esc(NICHES[h.niche] || h.niche)}</td><td>${esc(h.city)}</td><td class="mini">${h.last_run_at ? new Date(h.last_run_at).toLocaleString('en-IN') : 'Never'}</td><td>${
+                  h.found_count
+                }</td><td>${h.kept_count}</td><td class="pnl"><button class="btn alt" style="padding:3px 9px;font-size:11px" data-run-hunt="${h.id}" ${
+                  cfg.hunts_enabled === false ? 'disabled' : ''
+                }>Run now</button><button class="btn danger" style="padding:3px 9px;font-size:11px" data-del-hunt="${h.id}">${icon('trash')}</button></td></tr>`
+            )
+            .join('')}</tbody></table></div>`
+        : '<div class="empty">No hunts set up yet.</div>'
+    }
+  </div>`;
+
+  $('huntForm').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('/api/hunter/hunts', { method: 'POST', body: JSON.stringify({ niche: $('huNiche').value, city: $('huCity').value }) });
+      toast('Hunt added');
+      await paintHunts();
+    } catch (err) {
+      toast(err.message || 'Could not add this hunt');
+    }
+  };
+  $('page-hunter')
+    .querySelectorAll('[data-run-hunt]')
+    .forEach((b) => (b.onclick = () => runHunt(Number(b.dataset.runHunt), b)));
+  $('page-hunter')
+    .querySelectorAll('[data-del-hunt]')
+    .forEach((b) => (b.onclick = () => deleteHunt(Number(b.dataset.delHunt))));
+}
+
+async function runHunt(id, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  try {
+    const r = await api(`/api/hunter/hunts/${id}/run`, { method: 'POST' });
+    toast(`Found ${r.found}, kept ${r.kept} new lead(s) - check Leads`);
+    await paintHunts();
+  } catch (e) {
+    toast(e.message || 'Hunt run failed');
+    btn.disabled = false;
+    btn.textContent = 'Run now';
+  }
+}
+
+async function deleteHunt(id) {
+  const ok = await confirmDialog('Delete this hunt? Leads it already found stay in your pipeline.', { title: 'Delete Hunt', confirmText: 'Delete', danger: true });
+  if (!ok) return;
+  try {
+    await api('/api/hunter/hunts/' + id, { method: 'DELETE' });
+    toast('Hunt deleted');
+    await paintHunts();
+  } catch (e) {
+    toast(e.message || 'Could not delete this hunt');
   }
 }
 

@@ -540,6 +540,22 @@ CREATE TABLE IF NOT EXISTS hunter_touches(
  FOREIGN KEY(approved_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- A saved "search for this niche in this area" job, run on demand (or later, on a
+-- schedule) against Apify's Google Maps actor - kept separate from hunter_leads so the
+-- same search can be re-run without re-typing it.
+CREATE TABLE IF NOT EXISTS hunter_hunts(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ niche TEXT NOT NULL DEFAULT 'other',
+ city TEXT NOT NULL,
+ active INTEGER NOT NULL DEFAULT 1,
+ last_run_at TEXT,
+ kept_count INTEGER NOT NULL DEFAULT 0,
+ found_count INTEGER NOT NULL DEFAULT 0,
+ created_by INTEGER,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- Admin override for the report's top-line numbers and summary text, per client/month.
 -- NULL in any numeric column means "use the auto-computed value" - this is a correction
 -- layer on top of real synced data, not a replacement for it.

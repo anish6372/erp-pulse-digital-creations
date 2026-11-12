@@ -11,6 +11,7 @@ const { requireAuth, requireAdminOrDept } = require('../middleware/auth');
 const { analyzeWebsite } = require('../utils/websiteSignals');
 const { generateHunterReport } = require('../utils/prospectAI');
 const { NICHES, CITIES, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
+const { searchGoogleMaps, huntSignal } = require('../utils/apifyHunt');
 
 const router = express.Router();
 const requireHunterAccess = requireAdminOrDept('Sales');
@@ -19,7 +20,7 @@ const normalize = (v) => String(v || '').trim().toLowerCase();
 const aiLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many AI requests this hour. Try again later.' } });
 
 router.get('/hunter/config', requireHunterAccess, (req, res) => {
-  res.json({ enabled: !!process.env.ANTHROPIC_API_KEY, niches: NICHES });
+  res.json({ enabled: !!process.env.ANTHROPIC_API_KEY, hunts_enabled: !!process.env.APIFY_TOKEN, niches: NICHES });
 });
 
 function parseRow(r) {
@@ -37,56 +38,27 @@ async function auditAndScore({ niche, city, website, ig_followers, ig_last_post_
   return { channels, siteSignals, ...scored };
 }
 
-router.get('/hunter/leads', requireHunterAccess, (req, res) => {
-  const { q, tier, niche, status } = req.query;
-  let rows = db.prepare('SELECT * FROM hunter_leads ORDER BY score DESC, created_at DESC').all().map(parseRow);
-  if (q) {
-    const needle = String(q).toLowerCase();
-    rows = rows.filter((r) => [r.name, r.city, r.contact_name].some((v) => String(v || '').toLowerCase().includes(needle)));
-  }
-  if (tier) rows = rows.filter((r) => r.tier === tier);
-  if (niche) rows = rows.filter((r) => r.niche === niche);
-  if (status) rows = rows.filter((r) => r.status === status);
-  res.json({ rows });
-});
-
-router.get('/hunter/leads/:id', requireHunterAccess, (req, res) => {
-  const row = db.prepare('SELECT * FROM hunter_leads WHERE id=?').get(Number(req.params.id));
-  if (!row) return res.status(404).json({ error: 'Not found' });
-  const touches = db.prepare('SELECT t.*, u.name approved_by_name FROM hunter_touches t LEFT JOIN users u ON u.id=t.approved_by WHERE t.lead_id=? ORDER BY t.created_at').all(row.id);
-  res.json({ lead: parseRow(row), touches });
-});
-
-router.post('/hunter/leads', requireHunterAccess, aiLimiter, async (req, res) => {
-  const u = req.user;
-  const b = req.body || {};
+// Shared by manual "Add Lead" and an automatic Hunt run - audits, scores and inserts one
+// business, returning its new id. Does not touch do-not-contact or AI drafting; callers
+// that need those do them around this.
+async function insertScoredLead(b, actorId) {
   const name = String(b.name || '').trim();
-  if (!name) return res.status(400).json({ error: 'Business name is required' });
-  const dncHit = ['email', 'phone', 'instagram'].map((k) => normalize(b[k])).filter(Boolean).find((v) => db.prepare('SELECT 1 FROM do_not_contact WHERE value=?').get(v));
-  if (dncHit) return res.status(409).json({ error: 'This contact is on the do-not-contact list' });
-
-  let auditResult;
-  try {
-    auditResult = await auditAndScore({
-      niche: b.niche,
-      city: b.city,
-      website: b.website,
-      ig_followers: b.ig_followers,
-      ig_last_post_days: b.ig_last_post_days,
-      ig_posting_frequency: b.ig_posting_frequency,
-      gmb_rating: b.gmb_rating,
-      gmb_reviews: b.gmb_reviews,
-      email: b.email,
-      instagram: b.instagram,
-      linkedin: b.linkedin,
-      phone: b.phone,
-      signal_type: b.signal_type || 'manual',
-      signal_at: b.signal_at || now(),
-    });
-  } catch (e) {
-    return res.status(500).json({ error: 'Could not audit this business: ' + e.message });
-  }
-
+  const auditResult = await auditAndScore({
+    niche: b.niche,
+    city: b.city,
+    website: b.website,
+    ig_followers: b.ig_followers,
+    ig_last_post_days: b.ig_last_post_days,
+    ig_posting_frequency: b.ig_posting_frequency,
+    gmb_rating: b.gmb_rating,
+    gmb_reviews: b.gmb_reviews,
+    email: b.email,
+    instagram: b.instagram,
+    linkedin: b.linkedin,
+    phone: b.phone,
+    signal_type: b.signal_type || 'manual',
+    signal_at: b.signal_at || now(),
+  });
   const ts = now();
   const ins = db
     .prepare(
@@ -117,13 +89,49 @@ router.post('/hunter/leads', requireHunterAccess, aiLimiter, async (req, res) =>
       auditResult.score,
       auditResult.tier,
       'audited',
-      u.id,
+      actorId,
       b.notes || '',
-      u.id,
+      actorId,
       ts,
       ts
     );
-  const leadId = ins.lastInsertRowid;
+  return ins.lastInsertRowid;
+}
+
+router.get('/hunter/leads', requireHunterAccess, (req, res) => {
+  const { q, tier, niche, status } = req.query;
+  let rows = db.prepare('SELECT * FROM hunter_leads ORDER BY score DESC, created_at DESC').all().map(parseRow);
+  if (q) {
+    const needle = String(q).toLowerCase();
+    rows = rows.filter((r) => [r.name, r.city, r.contact_name].some((v) => String(v || '').toLowerCase().includes(needle)));
+  }
+  if (tier) rows = rows.filter((r) => r.tier === tier);
+  if (niche) rows = rows.filter((r) => r.niche === niche);
+  if (status) rows = rows.filter((r) => r.status === status);
+  res.json({ rows });
+});
+
+router.get('/hunter/leads/:id', requireHunterAccess, (req, res) => {
+  const row = db.prepare('SELECT * FROM hunter_leads WHERE id=?').get(Number(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const touches = db.prepare('SELECT t.*, u.name approved_by_name FROM hunter_touches t LEFT JOIN users u ON u.id=t.approved_by WHERE t.lead_id=? ORDER BY t.created_at').all(row.id);
+  res.json({ lead: parseRow(row), touches });
+});
+
+router.post('/hunter/leads', requireHunterAccess, aiLimiter, async (req, res) => {
+  const u = req.user;
+  const b = req.body || {};
+  const name = String(b.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Business name is required' });
+  const dncHit = ['email', 'phone', 'instagram'].map((k) => normalize(b[k])).filter(Boolean).find((v) => db.prepare('SELECT 1 FROM do_not_contact WHERE value=?').get(v));
+  if (dncHit) return res.status(409).json({ error: 'This contact is on the do-not-contact list' });
+
+  let leadId;
+  try {
+    leadId = await insertScoredLead(b, u.id);
+  } catch (e) {
+    return res.status(500).json({ error: 'Could not audit this business: ' + e.message });
+  }
   audit(u, 'CREATE', 'hunter_lead', leadId, name);
 
   if (process.env.ANTHROPIC_API_KEY) {
@@ -317,6 +325,102 @@ router.get('/hunter/market', requireHunterAccess, (req, res) => {
   const estimate = estimateMarket({ niche: req.query.niche || 'other', city: req.query.city || '', months: req.query.months });
   const { cities, niches } = leadBreakdown();
   res.json({ estimate, cities, niches, note: 'Illustrative estimate from category benchmarks, not live scraped market data. City and niche breakdowns below are your real leads.' });
+});
+
+// ---------- hunts (automatic discovery via Apify's Google Maps actor) ----------
+
+const huntLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 15, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many hunt runs this hour. Try again later.' } });
+
+router.get('/hunter/hunts', requireHunterAccess, (req, res) => {
+  res.json({ rows: db.prepare('SELECT h.*, u.name created_by_name FROM hunter_hunts h LEFT JOIN users u ON u.id=h.created_by ORDER BY h.created_at DESC').all() });
+});
+
+router.post('/hunter/hunts', requireHunterAccess, (req, res) => {
+  const u = req.user;
+  const b = req.body || {};
+  const city = String(b.city || '').trim();
+  if (!city) return res.status(400).json({ error: 'A location is required' });
+  const ts = now();
+  const r = db.prepare('INSERT INTO hunter_hunts(niche,city,active,created_by,created_at) VALUES (?,?,1,?,?)').run(b.niche || 'other', city, u.id, ts);
+  audit(u, 'CREATE', 'hunter_hunt', r.lastInsertRowid, `${b.niche || 'other'} in ${city}`);
+  res.status(201).json({ id: r.lastInsertRowid });
+});
+
+router.put('/hunter/hunts/:id', requireHunterAccess, (req, res) => {
+  const id = Number(req.params.id);
+  const hunt = db.prepare('SELECT * FROM hunter_hunts WHERE id=?').get(id);
+  if (!hunt) return res.status(404).json({ error: 'Not found' });
+  const active = req.body?.active !== undefined ? (req.body.active ? 1 : 0) : hunt.active;
+  db.prepare('UPDATE hunter_hunts SET active=? WHERE id=?').run(active, id);
+  res.json({ ok: true });
+});
+
+router.delete('/hunter/hunts/:id', requireHunterAccess, (req, res) => {
+  const id = Number(req.params.id);
+  const hunt = db.prepare('SELECT * FROM hunter_hunts WHERE id=?').get(id);
+  if (!hunt) return res.status(404).json({ error: 'Not found' });
+  db.prepare('DELETE FROM hunter_hunts WHERE id=?').run(id);
+  audit(req.user, 'DELETE', 'hunter_hunt', id, `${hunt.niche} in ${hunt.city}`);
+  res.json({ ok: true });
+});
+
+router.post('/hunter/hunts/:id/run', requireHunterAccess, huntLimiter, async (req, res) => {
+  if (!process.env.APIFY_TOKEN) return res.status(400).json({ error: 'Automatic lead discovery is not configured on this server (no Apify token set)' });
+  const u = req.user;
+  const hunt = db.prepare('SELECT * FROM hunter_hunts WHERE id=?').get(Number(req.params.id));
+  if (!hunt) return res.status(404).json({ error: 'Not found' });
+
+  let places;
+  try {
+    places = await searchGoogleMaps({ searchTerm: NICHES[hunt.niche]?.label || hunt.niche, location: hunt.city, maxResults: 20 });
+  } catch (e) {
+    return res.status(502).json({ error: e.message });
+  }
+
+  let kept = 0;
+  for (const p of places) {
+    if (!p.name) continue;
+    const dup = db.prepare('SELECT 1 FROM hunter_leads WHERE LOWER(name)=? AND city=?').get(p.name.toLowerCase(), hunt.city);
+    if (dup) continue;
+    const dncHit = [p.phone].map(normalize).filter(Boolean).find((v) => db.prepare('SELECT 1 FROM do_not_contact WHERE value=?').get(v));
+    if (dncHit) continue;
+    const sig = huntSignal(p);
+    if (!sig.keep) continue;
+
+    let leadId;
+    try {
+      leadId = await insertScoredLead(
+        {
+          name: p.name,
+          niche: hunt.niche,
+          city: hunt.city,
+          website: p.website,
+          phone: p.phone,
+          gmb_rating: p.rating,
+          gmb_reviews: p.reviews,
+          signal_type: sig.signal_type,
+          signal_title: sig.signal_title,
+          signal_source: 'Google Maps (Apify hunt)',
+        },
+        u.id
+      );
+    } catch (e) {
+      continue; // one bad website fetch shouldn't fail the whole hunt run
+    }
+    audit(u, 'CREATE', 'hunter_lead', leadId, `${p.name} (from hunt #${hunt.id})`);
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        await draftForLead(leadId, u);
+      } catch (e) {
+        /* lead is still saved and scored even if the AI draft step fails */
+      }
+    }
+    kept++;
+  }
+
+  db.prepare('UPDATE hunter_hunts SET last_run_at=?, kept_count=?, found_count=? WHERE id=?').run(now(), kept, places.length, hunt.id);
+  audit(u, 'UPDATE', 'hunter_hunt', hunt.id, `Run: kept ${kept} of ${places.length} found`);
+  res.json({ found: places.length, kept });
 });
 
 module.exports = router;
