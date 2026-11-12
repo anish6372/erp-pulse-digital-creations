@@ -200,6 +200,25 @@ async function loadMarket() {
     ${forecastSection(m)}`;
 
   const out = $('marketOut');
+  const lb = $('locateBtn');
+  if (lb) {
+    lb.onclick = async () => {
+      lb.disabled = true;
+      let found = 0;
+      try {
+        for (;;) {
+          lb.textContent = `Looking up locations… ${found} found`;
+          const r = await api('/api/hunter/leads/locate', { method: 'POST', body: JSON.stringify({ city: marketParams.city }) });
+          found += r.located;
+          if (!r.remaining || !r.tried) break;
+        }
+        toast(found ? `${found} lead(s) placed on the map` : 'No locations found - small businesses are often missing from the free map data');
+      } catch (e) {
+        toast(e.message || 'Location lookup failed');
+      }
+      await loadMarket();
+    };
+  }
   out.querySelectorAll('[data-tier-toggle]').forEach((cb) => {
     cb.onchange = () => {
       out.querySelectorAll(`[data-tier="${cb.dataset.tierToggle}"]`).forEach((el) => (el.style.display = cb.checked ? '' : 'none'));
@@ -236,6 +255,20 @@ function radialSection(d, m) {
   const near = placed.filter((p) => p.km <= 12).sort((a, b) => b.score - a.score);
   const far = placed.length - near.length;
   const W = 560, H = 460, cx = W / 2, cy = H / 2, R10 = 190, scale = R10 / 10;
+  const locs = (d.localities || []).map((l) => ({ ...l, km: kmBetween(center, l) })).filter((l) => l.km <= 12);
+  const areaOf = (p) => {
+    let best = null;
+    for (const l of locs) {
+      const k = kmBetween(p, l);
+      if (!best || k < best.k) best = { k, name: l.name };
+    }
+    return best && best.k <= 4 ? best.name : '—';
+  };
+  const px = (lng) => cx + (lng - center.lng) * 111.32 * Math.cos((center.lat * Math.PI) / 180) * scale;
+  const py = (lat) => cy - (lat - center.lat) * 110.57 * scale;
+  const landmarks = locs
+    .map((l) => `<circle cx="${px(l.lng).toFixed(1)}" cy="${py(l.lat).toFixed(1)}" r="2" fill="var(--muted)" fill-opacity=".6"/><text x="${px(l.lng).toFixed(1)}" y="${(py(l.lat) - 5).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--muted)">${esc(l.name)}</text>`)
+    .join('');
   const dots = near
     .map((p) => {
       const x = cx + (p.lng - center.lng) * 111.32 * Math.cos((center.lat * Math.PI) / 180) * scale;
@@ -250,6 +283,7 @@ function radialSection(d, m) {
     <circle cx="${cx}" cy="${cy}" r="${R10 / 2}" fill="none" stroke="var(--line)"/>
     <text x="${cx + R10 / 2 + 4}" y="${cy - 4}" font-size="10" fill="var(--muted)">5 km</text>
     <text x="${cx + R10 * 0.7}" y="${cy - R10 * 0.72}" font-size="10" fill="var(--muted)">10 km</text>
+    ${landmarks}
     ${dots}
     <circle cx="${cx}" cy="${cy}" r="6" fill="#fff" stroke="var(--ink)" stroke-width="2"/>
     <text x="${cx}" y="${cy + 20}" text-anchor="middle" font-size="12" fill="var(--ink)" style="font-weight:700">${esc(m.city || 'City centre')}</text>
@@ -263,10 +297,11 @@ function radialSection(d, m) {
     .join('');
   const rows = near
     .slice(0, 12)
-    .map((p) => `<tr data-lead-id="${p.id}" style="cursor:pointer"><td><b>${esc(p.name)}</b><div class="mini">${esc(NICHES[p.niche] || p.niche)}</div></td><td>${p.km.toFixed(1)} km</td><td>${p.gmb_reviews ?? '—'}</td><td>${p.score}</td><td><span class="badge ${TIER_CLASS[p.tier] || 'gray'}">${esc(p.tier)}</span></td></tr>`)
+    .map((p) => `<tr data-lead-id="${p.id}" style="cursor:pointer"><td><b>${esc(p.name)}</b><div class="mini">${esc(NICHES[p.niche] || p.niche)}</div></td><td>${esc(areaOf(p))}</td><td>${p.km.toFixed(1)} km</td><td>${p.gmb_reviews ?? '—'}</td><td>${p.score}</td><td><span class="badge ${TIER_CLASS[p.tier] || 'gray'}">${esc(p.tier)}</span></td></tr>`)
     .join('');
   const note = [
     unpinned > 0 ? `${unpinned} lead(s) here aren't pinned because they have no coordinates (leads found by a Hunt are pinned automatically).` : '',
+    d.unlocated > 0 ? `<button class="btn alt" id="locateBtn" type="button" style="margin-left:6px">Locate ${d.unlocated} lead(s)</button>` : '',
     far > 0 ? `${far} more are over 12 km from the centre.` : '',
   ]
     .filter(Boolean)
@@ -274,7 +309,7 @@ function radialSection(d, m) {
   return `<div class="grid g2" style="align-items:start;margin-bottom:12px">
     <div class="card">
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:8px"><h3>Map</h3><div>${toggles}</div></div>
-      ${pts.length ? svg : `<div class="empty">No pinned leads in ${esc(m.city || 'this city')} yet. Run a Hunt for this city and the businesses it finds will appear here around the centre.</div>`}
+      ${center ? svg : '<div class="empty">Pick a city to see the map.</div>'}
       <div class="mini" style="margin-top:8px">Your real leads, positioned by their Google Maps coordinates. Bigger dot = higher score. Click a dot to open the lead. ${note}</div>
     </div>
     <div class="card">
@@ -290,7 +325,7 @@ function radialSection(d, m) {
   </div>
   <div class="card" style="margin-bottom:12px">
     <h3 style="margin-bottom:8px">Who's here <span class="mini">your leads in ${esc(m.city || 'this city')}, highest score first</span></h3>
-    ${rows ? `<div class="tableWrap"><table class="table"><thead><tr><th>Business</th><th>Distance</th><th>Reviews</th><th>Score</th><th>Tier</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">Nothing to list yet.</div>'}
+    ${rows ? `<div class="tableWrap"><table class="table"><thead><tr><th>Business</th><th>Area</th><th>Distance</th><th>Reviews</th><th>Score</th><th>Tier</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">Nothing to list yet.</div>'}
   </div>`;
 }
 

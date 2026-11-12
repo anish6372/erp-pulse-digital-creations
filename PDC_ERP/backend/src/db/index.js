@@ -334,6 +334,7 @@ CREATE TABLE IF NOT EXISTS onboardings(
 `);
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lat REAL'); } catch(e) {}
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lng REAL'); } catch(e) {}
+try { db.exec('ALTER TABLE hunter_leads ADD COLUMN geo_tried INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec("ALTER TABLE clients ADD COLUMN address TEXT DEFAULT ''"); } catch(e) {}
 try { db.exec("ALTER TABLE clients ADD COLUMN business_type TEXT DEFAULT ''"); } catch(e) {}
 try { db.exec("ALTER TABLE clients ADD COLUMN contact_person TEXT DEFAULT ''"); } catch(e) {}

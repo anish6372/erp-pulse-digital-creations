@@ -26,6 +26,20 @@ const CITIES = {
   Singapore: { priority: 3, lat: 1.35, lng: 103.82 },
   London: { priority: 3, lat: 51.51, lng: -0.13 },
 };
+// Well-known neighbourhoods per city (approximate centre points) - drawn as faint landmarks
+// on the Market map and used to label each lead with its nearest area.
+const LOCALITIES = {
+  Bangalore: { Koramangala: [12.9352, 77.6245], 'HSR Layout': [12.9116, 77.6389], Indiranagar: [12.9784, 77.6408], Jayanagar: [12.9308, 77.5838], 'JP Nagar': [12.9063, 77.5857], 'BTM Layout': [12.9166, 77.6101], 'MG Road': [12.9756, 77.6068], Whitefield: [12.9698, 77.75], 'Electronic City': [12.8452, 77.6602], Marathahalli: [12.9569, 77.7011], Bellandur: [12.9304, 77.6784], Domlur: [12.9609, 77.6387], Malleshwaram: [13.0035, 77.57], Hebbal: [13.0358, 77.597], Basavanagudi: [12.943, 77.574], Rajajinagar: [12.991, 77.552], Banashankari: [12.9255, 77.5468] },
+  Mumbai: { Bandra: [19.0596, 72.8295], Andheri: [19.1136, 72.8697], Powai: [19.1176, 72.906], 'Lower Parel': [18.993, 72.83], Colaba: [18.9067, 72.8147], Dadar: [19.0178, 72.8478] },
+  'Delhi NCR': { 'Connaught Place': [28.6315, 77.2167], Gurgaon: [28.4595, 77.0266], Noida: [28.5355, 77.391], Saket: [28.5245, 77.2066], Dwarka: [28.5921, 77.046] },
+  Hyderabad: { 'Hitech City': [17.4435, 78.3772], 'Banjara Hills': [17.4156, 78.4347], Gachibowli: [17.4401, 78.3489], Secunderabad: [17.4399, 78.4983] },
+  Pune: { 'Koregaon Park': [18.5362, 73.894], Hinjewadi: [18.5913, 73.7389], Kothrud: [18.5074, 73.8077], 'Viman Nagar': [18.5679, 73.9143] },
+  Chennai: { 'T Nagar': [13.0418, 80.2341], Adyar: [13.0012, 80.2565], 'Anna Nagar': [13.085, 80.2101], Velachery: [12.9815, 80.218] },
+  Dubai: { Downtown: [25.1972, 55.2744], Marina: [25.0805, 55.1403], Deira: [25.2697, 55.3095] },
+  Singapore: { Orchard: [1.3048, 103.8318], CBD: [1.28, 103.85], Jurong: [1.3329, 103.7436] },
+  London: { Soho: [51.5136, -0.1318], Shoreditch: [51.5265, -0.0786], 'Canary Wharf': [51.5054, -0.0235] },
+};
+
 const PRIORITY = { 1: { label: 'Bangalore', weight: 1.0 }, 2: { label: 'Pan India', weight: 0.85 }, 3: { label: 'Global', weight: 0.7 } };
 const priorityOf = (city) => CITIES[city]?.priority || 2;
 
@@ -193,6 +207,7 @@ function estimateMarket({ niche, city, months = 2 }) {
 module.exports = {
   NICHES,
   CITIES,
+  LOCALITIES,
   PRIORITY,
   SIGNALS,
   priorityOf,

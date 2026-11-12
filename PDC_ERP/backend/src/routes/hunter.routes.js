@@ -10,7 +10,7 @@ const { audit } = require('../utils/audit');
 const { requireAuth, requireAdminOrDept } = require('../middleware/auth');
 const { analyzeWebsite } = require('../utils/websiteSignals');
 const { generateHunterReport } = require('../utils/prospectAI');
-const { NICHES, CITIES, SIGNALS, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
+const { NICHES, CITIES, LOCALITIES, SIGNALS, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
 const { searchGoogleMaps, huntSignal } = require('../utils/apifyHunt');
 
 const router = express.Router();
@@ -208,6 +208,39 @@ router.post('/hunter/leads/bulk', requireHunterAccess, bulkLimiter, async (req, 
   res.json(result);
 });
 
+// Looks up coordinates for leads that have none, using OpenStreetMap's free Nominatim
+// geocoder (business name + city only). Small businesses are often missing from it, so a
+// miss is normal; each lead is tried once. Max 8 per call to respect Nominatim's 1 req/sec rule.
+const haversineKm = (a, b) => {
+  const rad = (x) => (x * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+};
+router.post('/hunter/leads/locate', requireHunterAccess, async (req, res) => {
+  const city = String(req.body?.city || '');
+  const meta = CITIES[city];
+  if (!meta) return res.status(400).json({ error: 'Pick a city first' });
+  const rows = db.prepare('SELECT id,name FROM hunter_leads WHERE city=? AND lat IS NULL AND geo_tried=0 LIMIT 8').all(city);
+  let located = 0;
+  for (const r of rows) {
+    let hit = null;
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(r.name + ', ' + city);
+      const resp = await fetch(url, { headers: { 'User-Agent': 'erp-lead-locator/1.0' } });
+      const arr = resp.ok ? await resp.json() : [];
+      if (arr[0]) {
+        const p = { lat: Number(arr[0].lat), lng: Number(arr[0].lon) };
+        if (Number.isFinite(p.lat) && Number.isFinite(p.lng) && haversineKm(meta, p) <= 40) hit = p;
+      }
+    } catch (e) { /* treat as a miss */ }
+    if (hit) { db.prepare('UPDATE hunter_leads SET lat=?, lng=?, geo_tried=1 WHERE id=?').run(hit.lat, hit.lng, r.id); located++; }
+    else db.prepare('UPDATE hunter_leads SET geo_tried=1 WHERE id=?').run(r.id);
+    await new Promise((ok) => setTimeout(ok, 1100));
+  }
+  const remaining = db.prepare('SELECT COUNT(*) c FROM hunter_leads WHERE city=? AND lat IS NULL AND geo_tried=0').get(city).c;
+  res.json({ tried: rows.length, located, remaining });
+});
+
 router.post('/hunter/leads/:id/draft', requireHunterAccess, aiLimiter, async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'AI drafting is not configured on this server' });
   try {
@@ -364,7 +397,7 @@ router.get('/hunter/market', requireHunterAccess, (req, res) => {
   const points = cityMeta
     ? db.prepare('SELECT id,name,niche,score,tier,gmb_reviews,lat,lng FROM hunter_leads WHERE city=?').all(req.query.city)
     : [];
-  res.json({ estimate, cities, niches, center: cityMeta ? { lat: cityMeta.lat, lng: cityMeta.lng } : null, points, note: 'Illustrative estimate from category benchmarks, not live scraped market data. City and niche breakdowns below are your real leads.' });
+  res.json({ estimate, cities, niches, center: cityMeta ? { lat: cityMeta.lat, lng: cityMeta.lng } : null, points, localities: Object.entries(LOCALITIES[req.query.city] || {}).map(([name, [lat, lng]]) => ({ name, lat, lng })), unlocated: cityMeta ? db.prepare('SELECT COUNT(*) c FROM hunter_leads WHERE city=? AND lat IS NULL AND geo_tried=0').get(req.query.city).c : 0, note: 'Illustrative estimate from category benchmarks, not live scraped market data. City and niche breakdowns below are your real leads.' });
 });
 
 // ---------- hunts (automatic discovery via Apify's Google Maps actor) ----------
