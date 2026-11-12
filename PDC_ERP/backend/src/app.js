@@ -29,6 +29,7 @@ const leadsRoutes = require('./routes/leads.routes');
 const contentRoutes = require('./routes/content.routes');
 const clientReportRoutes = require('./routes/clientreport.routes');
 const prospectRoutes = require('./routes/prospect.routes');
+const complianceRoutes = require('./routes/compliance.routes');
 
 function createApp() {
   const app = express();
@@ -75,6 +76,7 @@ function createApp() {
   app.use('/api', contentRoutes);
   app.use('/api', clientReportRoutes);
   app.use('/api', prospectRoutes);
+  app.use('/api', complianceRoutes);
 
   app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 

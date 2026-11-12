@@ -435,6 +435,34 @@ CREATE TABLE IF NOT EXISTS client_outcomes(
  UNIQUE(client_id, month),
  FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE
 );
+-- Contacts (by email or phone) that must never be reached out to again - checked before
+-- any new outreach, kept separately from the lead/candidate rows themselves so it survives
+-- even if the original record is deleted later.
+CREATE TABLE IF NOT EXISTS do_not_contact(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ type TEXT NOT NULL,
+ value TEXT NOT NULL,
+ reason TEXT DEFAULT '',
+ added_by INTEGER,
+ created_at TEXT NOT NULL,
+ UNIQUE(type, value),
+ FOREIGN KEY(added_by) REFERENCES users(id) ON DELETE SET NULL
+);
+-- A data subject's access/erasure request (India's DPDP Act, GDPR) - "access" snapshots
+-- every record held under that contact's email/phone; "delete" anonymizes the contact
+-- fields on those same records rather than removing the rows outright, so the business
+-- history (deal stage, what was discussed) survives while the actual personal data doesn't.
+CREATE TABLE IF NOT EXISTS data_requests(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ kind TEXT NOT NULL,
+ contact_value TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'Fulfilled',
+ result TEXT NOT NULL DEFAULT '{}',
+ requested_by INTEGER,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(requested_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- One AI-generated prospect report per business pitched - website signals collected
 -- automatically, Instagram entered by hand (scraping a prospect's Instagram who hasn't
 -- authorized anything would violate their ToS), both fed to the strategy write-up.
