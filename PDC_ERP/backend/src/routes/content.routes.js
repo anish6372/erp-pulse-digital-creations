@@ -119,6 +119,61 @@ router.post('/content/ai/ideas', requireAuth, aiLimiter, async (req, res) => {
   }
 });
 
+// ---------- bulk import from a spreadsheet ----------
+// The browser reads an .xlsx/.csv and posts the rows; each becomes a content card on its
+// planned date, so the calendar fills itself with no manual entry on the board.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const validDate = (s) => {
+  if (!DATE_RE.test(s)) return false;
+  const d = new Date(s + 'T00:00:00Z');
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+};
+
+router.post('/content/import', requireAuth, (req, res) => {
+  const u = req.user;
+  const b = req.body || {};
+  const clientId = Number(b.client_id);
+  const rows = Array.isArray(b.items) ? b.items : null;
+  if (!clientId || !db.prepare('SELECT id FROM clients WHERE id=?').get(clientId)) return res.status(400).json({ error: 'Choose a client' });
+  if (!rows || !rows.length) return res.status(400).json({ error: 'The file has no rows to import' });
+  if (rows.length > 300) return res.status(400).json({ error: 'Import up to 300 rows at a time' });
+
+  const kindOf = (v) => KINDS.find((k) => k.toLowerCase() === String(v || '').trim().toLowerCase()) || 'Reel';
+  const stageOf = (v) => {
+    const s = STAGES.find((x) => x.toLowerCase() === String(v || '').trim().toLowerCase());
+    return s && (u.role === 'Admin' || s !== 'Approved') ? s : 'Idea';
+  };
+  const exists = db.prepare('SELECT 1 FROM content_items WHERE client_id=? AND LOWER(title)=? AND scheduled_date=?');
+  const insert = db.prepare(
+    `INSERT INTO content_items(client_id,title,kind,stage,scheduled_date,assignee_id,script,caption,media_link,created_by,created_at,updated_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const skipped = [];
+  const dates = [];
+  let added = 0;
+  const ts = now();
+  db.exec('BEGIN');
+  try {
+    rows.forEach((r, i) => {
+      const title = String(r?.title || '').trim().slice(0, 200);
+      const date = String(r?.date || '').trim();
+      if (!title) return skipped.push({ row: i + 1, reason: 'missing title' });
+      if (date && !validDate(date)) return skipped.push({ row: i + 1, title, reason: 'date not understood' });
+      if (exists.get(clientId, title.toLowerCase(), date)) return skipped.push({ row: i + 1, title, reason: 'already on the calendar' });
+      insert.run(clientId, title, kindOf(r.kind), stageOf(r.stage), date, u.id, String(r.script || '').slice(0, 4000), String(r.caption || '').slice(0, 2200), String(r.link || '').slice(0, 500), u.id, ts, ts);
+      added++;
+      if (date) dates.push(date);
+    });
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    return res.status(500).json({ error: 'Import failed: ' + e.message });
+  }
+  audit(u, 'CREATE', 'content_item', null, `Imported ${added} item(s) from a spreadsheet`);
+  dates.sort();
+  res.json({ added, skipped, first_date: dates[0] || '', last_date: dates[dates.length - 1] || '' });
+});
+
 router.put('/content/:id', requireAuth, (req, res) => {
   const u = req.user;
   const id = Number(req.params.id);

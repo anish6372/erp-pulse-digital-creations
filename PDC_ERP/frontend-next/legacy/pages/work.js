@@ -1,5 +1,5 @@
 import { state } from '../lib/state.js';
-import { $, esc, externalUrl } from '../lib/dom.js';
+import { $, esc, externalUrl, downloadUrl, fileLabel } from '../lib/dom.js';
 import { openReportModal } from '../components/modals.js';
 
 export function renderWork() {
@@ -19,7 +19,7 @@ export function renderWork() {
                 r.hours
               }</td><td class="wrap">${esc(r.work_text)}</td><td>${r.work_drive_link ? `<a href="${esc(externalUrl(r.work_drive_link))}" target="_blank">Work Drive</a>` : ''} ${
                 r.poster_drive_link ? `<a href="${esc(externalUrl(r.poster_drive_link))}" target="_blank">Poster</a>` : ''
-              } ${r.attachment_path ? `<a href="${esc(r.attachment_path)}" target="_blank">Attachment</a>` : ''}</td></tr>`
+              } ${r.attachment_path ? `<a href="${esc(downloadUrl(r.attachment_path))}" download="${esc(fileLabel(r.attachment_path))}">Download attachment</a>` : ''}</td></tr>`
           )
           .join('')}</tbody></table>`
       : '<div class="empty">No work submitted yet.</div>'

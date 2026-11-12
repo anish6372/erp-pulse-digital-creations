@@ -48,6 +48,15 @@ function createApp() {
 
   app.get('/health', async (req, res) => res.json({ ok: true, time: new Date().toISOString(), redis: await require('./utils/redis').redisStatus() }));
 
+  // /uploads/<file>?download=1 forces a download (Content-Disposition: attachment) with the
+  // original file name, instead of opening the image/PDF in the browser.
+  app.get('/uploads/:file', (req, res, next) => {
+    if (!req.query.download) return next();
+    const file = require('node:path').basename(req.params.file);
+    const full = require('node:path').join(UPLOADS, file);
+    if (!require('node:fs').existsSync(full)) return res.status(404).end();
+    res.download(full, file.replace(/^\d+_[0-9a-f]{8}_/, ''));
+  });
   app.use('/uploads', express.static(UPLOADS, { maxAge: '7d' }));
 
   app.use('/api', uploadsRouter);

@@ -14,6 +14,11 @@ export const externalUrl = (u) => {
   return v && !/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(v) ? 'https://' + v : v;
 };
 
+// Uploaded files live at /uploads/<stamp>_<id>_<name>. This returns a link that makes the browser
+// download the file (with its original name) instead of opening it in a new tab.
+export const downloadUrl = (p) => (String(p || '').startsWith('/uploads/') ? String(p).split('?')[0] + '?download=1' : p);
+export const fileLabel = (p) => String(p || '').split('/').pop().replace(/^\d+_[0-9a-f]{8}_/, '');
+
 export const initials = (n) =>
   String(n || '')
     .split(' ')

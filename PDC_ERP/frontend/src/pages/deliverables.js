@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, status, externalUrl } from '../lib/dom.js';
+import { $, esc, status, externalUrl, downloadUrl, fileLabel } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 
 let cache = [];
@@ -37,6 +37,12 @@ function linkChip(href, label) {
   return `<a class="btn alt" href="${esc(href)}" target="_blank" rel="noopener">${icon('link')}<span>${esc(label)}</span></a>`;
 }
 
+// An uploaded file: the main button downloads it; a small link beside it still opens it for a quick look.
+function fileChip(path, label) {
+  const name = fileLabel(path);
+  return `<a class="btn alt" href="${esc(downloadUrl(path))}" download="${esc(name)}" title="Download ${esc(name)}">${icon('deliverables')}<span>Download ${esc(label)}</span></a><a class="mini" href="${esc(path)}" target="_blank" rel="noopener" style="align-self:center">View</a>`;
+}
+
 function renderList() {
   const admin = state.me.role === 'Admin';
   const q = ($('deliverablesSearch')?.value || '').trim().toLowerCase();
@@ -68,7 +74,7 @@ function renderList() {
               <div class="pnl">
                 ${r.work_drive_link ? linkChip(externalUrl(r.work_drive_link), 'Work Drive') : ''}
                 ${r.poster_drive_link ? linkChip(externalUrl(r.poster_drive_link), 'Poster') : ''}
-                ${r.attachment_path ? linkChip(r.attachment_path, r.attachment_name || 'Attachment') : ''}
+                ${r.attachment_path ? fileChip(r.attachment_path, r.attachment_name || 'attachment') : ''}
                 ${!r.work_drive_link && !r.poster_drive_link && !r.attachment_path ? '<span class="mini">No links attached to this submission.</span>' : ''}
               </div>
             </div>`

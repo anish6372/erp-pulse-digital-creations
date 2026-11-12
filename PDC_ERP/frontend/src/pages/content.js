@@ -3,6 +3,7 @@ import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, initials, toast, openModal, closeModal, dateNow, kpi, animateCountUps, confirmDialog } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
+import { readContentSheet, TEMPLATE_CSV } from '../lib/sheet.js';
 
 let data = { items: [], stages: [], kinds: [] };
 let ai = { enabled: false, usage: null }; // content AI assistant availability (+ usage for admins)
@@ -55,7 +56,7 @@ function paint() {
           ai.enabled ? `<button class="btn alt" id="aiIdeasBtn">${icon('send')}<span>AI ideas</span></button>` : ''
         }${
           isAdmin() && clientFilter ? `<button class="btn alt" id="linkBtn">${icon('link')}<span>Client review link</span></button>` : ''
-        }<button class="btn" id="addItemBtn">${icon('plus')}<span>New content</span></button></div>
+        }<button class="btn alt" id="importBtn">${icon('plus')}<span>Import Excel</span></button><button class="btn" id="addItemBtn">${icon('plus')}<span>New content</span></button></div>
       </div>
       ${view === 'board' ? boardHtml() : calendarHtml()}
     </div>
@@ -66,6 +67,7 @@ function paint() {
     }`;
   animateCountUps($('page-content'));
   if ($('aiIdeasBtn')) $('aiIdeasBtn').onclick = openIdeas;
+  if ($('importBtn')) $('importBtn').onclick = openImport;
 
   $('page-content')
     .querySelectorAll('[data-c]')
@@ -299,6 +301,78 @@ async function saveItem(e, id) {
   }
 }
 
+
+
+// ---- import a content plan from Excel / CSV: cards land on their dates in the calendar ----
+
+function openImport() {
+  const cl = clients();
+  if (!cl.length) return toast('Add a client first');
+  openModal(
+    'Import from Excel',
+    `<div class="mini" style="margin-bottom:10px">Upload the client's content plan (.xlsx or .csv). Each row becomes a card on its date and shows up in the calendar straight away - no typing on the board. Columns: <b>Date</b>, <b>Title</b> (required), Format, Caption, Script, Link. Dates like 2026-12-01, 01/12/2026 or 1 Dec 2026 all work.</div>
+    <div class="fgrid">
+      <div class="field"><label>Client</label><select id="im1">${cl.map((c) => `<option value="${c.id}" ${clientFilter === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Excel / CSV file</label><input id="im2" type="file" accept=".xlsx,.csv,text/csv"></div>
+    </div>
+    <div class="pnl" style="margin:8px 0"><button class="btn alt" type="button" id="imTpl">Download template</button></div>
+    <div id="imPreview"></div>`,
+    { wide: true }
+  );
+  let parsed = null;
+  $('imTpl').onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([TEMPLATE_CSV], { type: 'text/csv' }));
+    a.download = 'content-calendar-template.csv';
+    a.click();
+  };
+  $('im2').onchange = async (e) => {
+    const f = e.target.files[0];
+    parsed = null;
+    $('imPreview').innerHTML = '';
+    if (!f) return;
+    $('imPreview').innerHTML = '<div class="mini">Reading the file…</div>';
+    try {
+      parsed = await readContentSheet(f);
+    } catch (err) {
+      $('imPreview').innerHTML = `<div class="err">${esc(err.message || 'Could not read that file')}</div>`;
+      return;
+    }
+    const withDate = parsed.items.filter((i) => i.date).length;
+    $('imPreview').innerHTML = `<div class="notice ok" style="margin-bottom:8px"><b>${parsed.items.length}</b> row(s) found, <b>${withDate}</b> with a readable date.${
+      parsed.hasDate ? '' : ' No Date column was found, so cards will be added without a date.'
+    }</div>${
+      parsed.problems.length ? `<div class="notice warn" style="margin-bottom:8px">${parsed.problems.slice(0, 5).map(esc).join('<br>')}${parsed.problems.length > 5 ? '<br>…' : ''}</div>` : ''
+    }<div class="tableWrap"><table class="table"><thead><tr><th>Date</th><th>Title</th><th>Format</th></tr></thead><tbody>${parsed.items
+      .slice(0, 6)
+      .map((i) => `<tr><td class="mini">${esc(i.date || '—')}</td><td>${esc(i.title || '(missing)')}</td><td class="mini">${esc(i.kind || 'Reel')}</td></tr>`)
+      .join('')}</tbody></table></div>${parsed.items.length > 6 ? `<div class="mini">…and ${parsed.items.length - 6} more</div>` : ''}
+    <button class="btn" id="imGo" style="margin-top:10px">Add ${parsed.items.length} to the calendar</button>`;
+    $('imGo').onclick = async () => {
+      const btn = $('imGo');
+      btn.disabled = true;
+      btn.textContent = 'Adding…';
+      try {
+        const r = await api('/api/content/import', { method: 'POST', body: JSON.stringify({ client_id: Number($('im1').value), items: parsed.items }) });
+        clientFilter = Number($('im1').value);
+        view = 'calendar';
+        if (r.first_date) cursor = r.first_date.slice(0, 7);
+        await renderContent();
+        $('imPreview').innerHTML = `<div class="notice ok"><b>${r.added}</b> card(s) added${r.first_date ? ` - showing ${esc(r.first_date.slice(0, 7))} in the calendar behind this window` : ''}.${
+          r.skipped.length
+            ? `<div class="mini" style="margin-top:6px">Skipped ${r.skipped.length}: ${r.skipped.slice(0, 8).map((s) => `row ${s.row}${s.title ? ' (' + esc(s.title) + ')' : ''} - ${esc(s.reason)}`).join('; ')}</div>`
+            : ''
+        }</div><button class="btn" id="imClose" style="margin-top:10px">Done</button>`;
+        $('imClose').onclick = closeModal;
+        toast(`${r.added} card(s) added to the calendar`);
+      } catch (err) {
+        toast(err.message || 'Import failed');
+        btn.disabled = false;
+        btn.textContent = `Add ${parsed.items.length} to the calendar`;
+      }
+    };
+  };
+}
 
 // ---- AI assistant: drafts only, a person reviews before anything is saved ----
 
