@@ -37,6 +37,8 @@ async function searchGoogleMaps({ searchTerm, location, maxResults = 20 }) {
     rating: it.totalScore ?? it.rating ?? null,
     reviews: it.reviewsCount ?? it.reviews ?? null,
     category: it.categoryName || (Array.isArray(it.categories) ? it.categories[0] : '') || '',
+    lat: it.location?.lat ?? null,
+    lng: it.location?.lng ?? null,
     place_url: it.url || it.googleMapsUrl || '',
   }));
 }

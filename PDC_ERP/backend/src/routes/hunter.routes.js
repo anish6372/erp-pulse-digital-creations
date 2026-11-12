@@ -10,7 +10,7 @@ const { audit } = require('../utils/audit');
 const { requireAuth, requireAdminOrDept } = require('../middleware/auth');
 const { analyzeWebsite } = require('../utils/websiteSignals');
 const { generateHunterReport } = require('../utils/prospectAI');
-const { NICHES, CITIES, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
+const { NICHES, CITIES, SIGNALS, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
 const { searchGoogleMaps, huntSignal } = require('../utils/apifyHunt');
 
 const router = express.Router();
@@ -62,8 +62,8 @@ async function insertScoredLead(b, actorId) {
   const ts = now();
   const ins = db
     .prepare(
-      `INSERT INTO hunter_leads(name,niche,city,website,instagram,linkedin,email,phone,contact_name,contact_role,signal_type,signal_title,signal_source,signal_at,gmb_rating,gmb_reviews,ig_followers,ig_last_post_days,ig_posting_frequency,channels,score,tier,status,owner_id,notes,created_by,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO hunter_leads(name,niche,city,website,instagram,linkedin,email,phone,contact_name,contact_role,signal_type,signal_title,signal_source,signal_at,gmb_rating,gmb_reviews,ig_followers,ig_last_post_days,ig_posting_frequency,channels,score,tier,status,owner_id,notes,created_by,created_at,updated_at,lat,lng)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       name,
@@ -78,7 +78,7 @@ async function insertScoredLead(b, actorId) {
       b.contact_role || '',
       b.signal_type || 'manual',
       b.signal_title || '',
-      b.signal_source || '',
+      b.signal_source || b.source_platform || '',
       b.signal_at || ts,
       b.gmb_rating || null,
       b.gmb_reviews || null,
@@ -93,7 +93,9 @@ async function insertScoredLead(b, actorId) {
       b.notes || '',
       actorId,
       ts,
-      ts
+      ts,
+      Number.isFinite(Number(b.lat)) && b.lat !== null && b.lat !== '' ? Number(b.lat) : null,
+      Number.isFinite(Number(b.lng)) && b.lng !== null && b.lng !== '' ? Number(b.lng) : null
     );
   return ins.lastInsertRowid;
 }
@@ -172,6 +174,39 @@ async function draftForLead(leadId, actor) {
   }
   if (actor) audit(actor, 'UPDATE', 'hunter_lead', leadId, 'AI draft generated');
 }
+
+// Bulk import: the browser parses a CSV and posts up to 50 rows. Each row is audited
+// (website check), scored and, if AI drafting is configured, drafted - same as a single add.
+const bulkLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 40, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many bulk imports this hour. Try again later.' } });
+router.post('/hunter/leads/bulk', requireHunterAccess, bulkLimiter, async (req, res) => {
+  const u = req.user;
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+  if (!rows || !rows.length) return res.status(400).json({ error: 'No rows to import' });
+  if (rows.length > 50) return res.status(400).json({ error: 'Import up to 50 rows at a time' });
+  const result = { added: 0, skipped: [], drafted: 0 };
+  for (let i = 0; i < rows.length; i++) {
+    const b = rows[i] || {};
+    const name = String(b.name || '').trim();
+    if (!name) { result.skipped.push({ row: i + 1, reason: 'missing name' }); continue; }
+    if (!NICHES[b.niche]) b.niche = 'other';
+    if (!SIGNALS[b.signal_type]) b.signal_type = 'manual';
+    const dncHit = ['email', 'phone', 'instagram'].map((k) => normalize(b[k])).filter(Boolean).find((v) => db.prepare('SELECT 1 FROM do_not_contact WHERE value=?').get(v));
+    if (dncHit) { result.skipped.push({ row: i + 1, name, reason: 'on the do-not-contact list' }); continue; }
+    let leadId;
+    try {
+      leadId = await insertScoredLead(b, u.id);
+    } catch (e) {
+      result.skipped.push({ row: i + 1, name, reason: 'could not audit: ' + e.message });
+      continue;
+    }
+    audit(u, 'CREATE', 'hunter_lead', leadId, name + ' (bulk import)');
+    result.added++;
+    if (process.env.ANTHROPIC_API_KEY) {
+      try { await draftForLead(leadId, u); result.drafted++; } catch (e) { /* lead still saved */ }
+    }
+  }
+  res.json(result);
+});
 
 router.post('/hunter/leads/:id/draft', requireHunterAccess, aiLimiter, async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'AI drafting is not configured on this server' });
@@ -287,7 +322,8 @@ router.get('/hunter/dashboard', requireHunterAccess, (req, res) => {
     .filter((l) => !['won', 'lost', 'disqualified'].includes(l.status))
     .sort((a, b) => b.score - a.score)
     .slice(0, 6);
-  res.json({ hot_leads: hot, drafts_to_approve: drafts, tasks_pending: tasksPending, approved_today: approvedToday, funnel, call_these_first: callThese });
+  const { cities, niches } = leadBreakdown();
+  res.json({ hot_leads: hot, drafts_to_approve: drafts, tasks_pending: tasksPending, approved_today: approvedToday, funnel, call_these_first: callThese, cities, niches });
 });
 
 // ---------- market (illustrative estimate, not live scraped data) ----------
@@ -324,7 +360,11 @@ function leadBreakdown() {
 router.get('/hunter/market', requireHunterAccess, (req, res) => {
   const estimate = estimateMarket({ niche: req.query.niche || 'other', city: req.query.city || '', months: req.query.months });
   const { cities, niches } = leadBreakdown();
-  res.json({ estimate, cities, niches, note: 'Illustrative estimate from category benchmarks, not live scraped market data. City and niche breakdowns below are your real leads.' });
+  const cityMeta = CITIES[req.query.city];
+  const points = cityMeta
+    ? db.prepare('SELECT id,name,niche,score,tier,gmb_reviews,lat,lng FROM hunter_leads WHERE city=?').all(req.query.city)
+    : [];
+  res.json({ estimate, cities, niches, center: cityMeta ? { lat: cityMeta.lat, lng: cityMeta.lng } : null, points, note: 'Illustrative estimate from category benchmarks, not live scraped market data. City and niche breakdowns below are your real leads.' });
 });
 
 // ---------- hunts (automatic discovery via Apify's Google Maps actor) ----------
@@ -401,6 +441,8 @@ router.post('/hunter/hunts/:id/run', requireHunterAccess, huntLimiter, async (re
           signal_type: sig.signal_type,
           signal_title: sig.signal_title,
           signal_source: 'Google Maps (Apify hunt)',
+          lat: p.lat,
+          lng: p.lng,
         },
         u.id
       );

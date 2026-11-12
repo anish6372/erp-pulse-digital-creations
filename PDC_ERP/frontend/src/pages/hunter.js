@@ -70,7 +70,7 @@ function paintShell() {
   ${cfg.enabled === false ? '<div class="notice warn">AI drafting isn\'t configured (no Anthropic API key set). Leads can still be added and scored - you just won\'t get AI-drafted outreach messages.</div>' : ''}
   ${cfg.hunts_enabled === false ? '<div class="notice warn">Automatic lead discovery isn\'t configured (no Apify token set). Add leads by hand in the meantime - everything else still works.</div>' : ''}
   <div class="pnl" style="margin-bottom:14px;flex-wrap:wrap">
-    ${tabBtn('dashboard', 'Dashboard')}${tabBtn('market', 'Market')}${tabBtn('leads', 'Leads')}${tabBtn('approvals', 'Approvals')}${tabBtn('tasks', 'Tasks')}${tabBtn('add', 'Add Lead')}${tabBtn(
+    ${tabBtn('dashboard', 'Dashboard')}${tabBtn('market', 'Market')}${tabBtn('leads', 'Leads')}${tabBtn('approvals', 'Approvals')}${tabBtn('tasks', 'Tasks')}${tabBtn('add', 'Add leads')}${tabBtn(
     'hunts',
     'Hunts'
   )}${isAdmin() ? tabBtn('compliance', 'Compliance') : ''}
@@ -143,6 +143,16 @@ async function paintDashboard() {
           .map((f) => `<div class="statline"><span>${esc(STATUS_LABEL[f.status] || f.status)}</span><span class="badge gray">${f.count}</span></div>`)
           .join('')}
       </div>
+    </div>
+    <div class="grid g2" style="align-items:start;margin-top:14px">
+      <div class="card">
+        <h3 style="margin-bottom:8px">Performance by Location</h3>
+        ${breakdownTable(d.cities, 'city', (c) => `${esc(c.city)} <span class="mini">P${c.priority}</span>`)}
+      </div>
+      <div class="card">
+        <h3 style="margin-bottom:8px">Performance by Niche</h3>
+        ${breakdownTable(d.niches, 'niche', (n) => esc(n.niche_label))}
+      </div>
     </div>`;
 }
 
@@ -186,31 +196,128 @@ async function loadMarket() {
       <div class="statline"><span>Category growth (est.)</span><span>${m.growth_pct}% / year</span></div>
       <div class="statline"><span>Suggested pitch angle</span><span>${esc(m.suggested_pitch)}</span></div>
     </div>
-    <div class="card" style="margin-bottom:12px">
-      <h3 style="margin-bottom:6px">Where your leads actually are</h3>
-      <div class="mini" style="margin-bottom:10px">Real data from the leads you've added in this module - marker size is lead count, color is the hottest tier found there. Cities with no leads yet show as a faint outline. Click a marker to jump to Leads for that city.</div>
-      ${mapSvg(d.cities)}
-    </div>
-    <div class="grid g2" style="align-items:start">
-      <div class="card">
-        <h3 style="margin-bottom:8px">Performance by Location</h3>
-        ${breakdownTable(d.cities, 'city', (c) => `${esc(c.city)} <span class="mini">P${c.priority}</span>`)}
-      </div>
-      <div class="card">
-        <h3 style="margin-bottom:8px">Performance by Niche</h3>
-        ${breakdownTable(d.niches, 'niche', (n) => esc(n.niche_label))}
-      </div>
-    </div>`;
+    ${radialSection(d, m)}
+    ${forecastSection(m)}`;
 
-  $('page-hunter')
-    .querySelectorAll('[data-city-marker]')
-    .forEach((el) => {
-      el.onclick = async () => {
-        filters = { ...filters, q: el.dataset.cityMarker };
-        tab = 'leads';
-        await switchTab('leads');
-      };
-    });
+  const out = $('marketOut');
+  out.querySelectorAll('[data-tier-toggle]').forEach((cb) => {
+    cb.onchange = () => {
+      out.querySelectorAll(`[data-tier="${cb.dataset.tierToggle}"]`).forEach((el) => (el.style.display = cb.checked ? '' : 'none'));
+    };
+  });
+  out.querySelectorAll('[data-lead-id]').forEach((el) => {
+    el.onclick = async () => {
+      tab = 'leads';
+      await switchTab('leads');
+      openLeadDetail(Number(el.dataset.leadId));
+    };
+  });
+}
+
+const TIER_COLOR = { hot: 'var(--danger)', warm: 'var(--warn)', parked: 'var(--muted)' };
+const kmBetween = (a, b) => {
+  const R = 6371;
+  const rad = (x) => (x * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+// Radial map around the chosen city centre with 5 km / 10 km rings. Only leads that have
+// real coordinates (Hunts pin them automatically from Google Maps) are drawn - nothing is
+// placed at a made-up position.
+function radialSection(d, m) {
+  const center = d.center;
+  const all = d.points || [];
+  const pts = center ? all.filter((p) => p.lat != null && p.lng != null) : [];
+  const unpinned = all.length - pts.length;
+  const placed = pts.map((p) => ({ ...p, km: kmBetween(center, p) }));
+  const near = placed.filter((p) => p.km <= 12).sort((a, b) => b.score - a.score);
+  const far = placed.length - near.length;
+  const W = 560, H = 460, cx = W / 2, cy = H / 2, R10 = 190, scale = R10 / 10;
+  const dots = near
+    .map((p) => {
+      const x = cx + (p.lng - center.lng) * 111.32 * Math.cos((center.lat * Math.PI) / 180) * scale;
+      const y = cy - (p.lat - center.lat) * 110.57 * scale;
+      const r = 5 + (p.score / 100) * 8;
+      const col = TIER_COLOR[p.tier] || 'var(--muted)';
+      return `<g data-tier="${p.tier}" data-lead-id="${p.id}" style="cursor:pointer"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${col}" fill-opacity=".8" stroke="${col}"><title>${esc(p.name)} - score ${p.score}, ${p.km.toFixed(1)} km</title></circle></g>`;
+    })
+    .join('');
+  const svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;background:var(--panel);border-radius:10px">
+    <circle cx="${cx}" cy="${cy}" r="${R10}" fill="none" stroke="var(--line)"/>
+    <circle cx="${cx}" cy="${cy}" r="${R10 / 2}" fill="none" stroke="var(--line)"/>
+    <text x="${cx + R10 / 2 + 4}" y="${cy - 4}" font-size="10" fill="var(--muted)">5 km</text>
+    <text x="${cx + R10 * 0.7}" y="${cy - R10 * 0.72}" font-size="10" fill="var(--muted)">10 km</text>
+    ${dots}
+    <circle cx="${cx}" cy="${cy}" r="6" fill="#fff" stroke="var(--ink)" stroke-width="2"/>
+    <text x="${cx}" y="${cy + 20}" text-anchor="middle" font-size="12" fill="var(--ink)" style="font-weight:700">${esc(m.city || 'City centre')}</text>
+  </svg>`;
+  const counts = { hot: 0, warm: 0, parked: 0 };
+  near.forEach((p) => {
+    if (counts[p.tier] != null) counts[p.tier]++;
+  });
+  const toggles = ['hot', 'warm', 'parked']
+    .map((t) => `<label class="mini" style="display:inline-flex;gap:6px;align-items:center;margin-right:14px"><input type="checkbox" data-tier-toggle="${t}" checked><span style="color:${TIER_COLOR[t]}">&#9679;</span> ${t[0].toUpperCase() + t.slice(1)} (${counts[t]})</label>`)
+    .join('');
+  const rows = near
+    .slice(0, 12)
+    .map((p) => `<tr data-lead-id="${p.id}" style="cursor:pointer"><td><b>${esc(p.name)}</b><div class="mini">${esc(NICHES[p.niche] || p.niche)}</div></td><td>${p.km.toFixed(1)} km</td><td>${p.gmb_reviews ?? '—'}</td><td>${p.score}</td><td><span class="badge ${TIER_CLASS[p.tier] || 'gray'}">${esc(p.tier)}</span></td></tr>`)
+    .join('');
+  const note = [
+    unpinned > 0 ? `${unpinned} lead(s) here aren't pinned because they have no coordinates (leads found by a Hunt are pinned automatically).` : '',
+    far > 0 ? `${far} more are over 12 km from the centre.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return `<div class="grid g2" style="align-items:start;margin-bottom:12px">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:8px"><h3>Map</h3><div>${toggles}</div></div>
+      ${pts.length ? svg : `<div class="empty">No pinned leads in ${esc(m.city || 'this city')} yet. Run a Hunt for this city and the businesses it finds will appear here around the centre.</div>`}
+      <div class="mini" style="margin-top:8px">Your real leads, positioned by their Google Maps coordinates. Bigger dot = higher score. Click a dot to open the lead. ${note}</div>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:8px">What this means for Pulse</h3>
+      <ul style="margin:0;padding-left:18px;line-height:1.6">
+        <li><b>Estimate:</b> about ${m.businesses_buying_estimate} businesses here buy ${esc(m.niche_label.toLowerCase())} services, roughly ${m.projects_estimate} projects over ${m.period_months} month(s).</li>
+        <li><b>Up for grabs:</b> around ${'₹' + Number(m.up_for_grabs_monthly_estimate).toLocaleString('en-IN')} a month has no retained agency.</li>
+        <li><b>Growth:</b> ${m.growth_pct}% a year. <b>Pitch:</b> ${esc(m.suggested_pitch)}.</li>
+        <li><b>Your pipeline here:</b> ${all.length} lead(s), ${counts.hot} hot within 12 km.</li>
+      </ul>
+      <div class="mini" style="margin-top:8px">Estimates are modeled from category benchmarks; lead counts are real.</div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <h3 style="margin-bottom:8px">Who's here <span class="mini">your leads in ${esc(m.city || 'this city')}, highest score first</span></h3>
+    ${rows ? `<div class="tableWrap"><table class="table"><thead><tr><th>Business</th><th>Distance</th><th>Reviews</th><th>Score</th><th>Tier</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">Nothing to list yet.</div>'}
+  </div>`;
+}
+
+// Modeled forecast: current monthly spend grown at the category's annual growth rate.
+// Labeled as a model, not live data.
+function forecastSection(m) {
+  const money = (n) => '₹' + (n >= 1e7 ? (n / 1e7).toFixed(1) + ' Cr' : n >= 1e5 ? (n / 1e5).toFixed(1) + ' L' : Number(n).toLocaleString('en-IN'));
+  const g = Math.pow(1 + m.growth_pct / 100, 1 / 12);
+  const vals = Array.from({ length: 7 }, (_, i) => m.monthly_spend_estimate * Math.pow(g, i));
+  const W = 700, H = 200, P = 30;
+  const max = Math.max(...vals) * 1.15;
+  const min = Math.min(...vals) * 0.85;
+  const x = (i) => P + (i / 6) * (W - 2 * P);
+  const y = (v) => H - P - ((v - min) / (max - min || 1)) * (H - 2 * P);
+  const path = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const labels = ['Now', '+1', '+2', '+3', '+4', '+5', '+6'].map((t, i) => `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--muted)">${i ? t + ' mo' : t}</text>`).join('');
+  return `<div class="card" style="margin-bottom:12px">
+    <h3 style="margin-bottom:4px">Forecast: the next 6 months</h3>
+    <div class="mini" style="margin-bottom:10px">Modeled by growing this category's estimated monthly spend at ${m.growth_pct}% a year. Illustrative, not live market data.</div>
+    <div class="grid g4" style="margin-bottom:10px">
+      ${kpi('Now', money(vals[0]), 'est. monthly spend')}
+      ${kpi('In 3 months', money(vals[3]), `${((vals[3] / vals[0] - 1) * 100).toFixed(1)}% vs now`)}
+      ${kpi('In 6 months', money(vals[6]), `${((vals[6] / vals[0] - 1) * 100).toFixed(1)}% vs now`)}
+      ${kpi('Projects / month', Math.round(m.projects_estimate / m.period_months), 'today, est.')}
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:var(--panel);border-radius:10px"><path d="${path}" fill="none" stroke="#4f86f7" stroke-width="2" stroke-dasharray="5 4"/>${vals.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="#4f86f7"/>`).join('')}${labels}</svg>
+  </div>`;
 }
 
 function breakdownTable(rows, key, labelFn) {
@@ -220,47 +327,6 @@ function breakdownTable(rows, key, labelFn) {
     .filter((r) => r.lead_count > 0)
     .map((r) => `<tr><td>${labelFn(r)}</td><td>${r.lead_count}</td><td>${r.hot}</td><td>${r.warm}</td><td>${r.parked}</td><td>${r.avg_score ?? '—'}</td></tr>`)
     .join('')}</tbody></table></div>`;
-}
-
-// Real lat/lng per city, no real per-business coordinates (we only know a lead's city) -
-// an honest city-level scatter, not a fabricated street map.
-function mapSvg(cities) {
-  const W = 820,
-    H = 380,
-    PAD = 46;
-  const lonMin = -8,
-    lonMax = 110,
-    latMin = -3,
-    latMax = 56;
-  const px = (lng) => PAD + ((lng - lonMin) / (lonMax - lonMin)) * (W - 2 * PAD);
-  const py = (lat) => PAD + ((latMax - lat) / (latMax - latMin)) * (H - 2 * PAD);
-  const grid = [];
-  for (let i = 0; i <= 6; i++) {
-    const gx = PAD + (i / 6) * (W - 2 * PAD);
-    grid.push(`<line x1="${gx}" y1="${PAD}" x2="${gx}" y2="${H - PAD}" stroke="var(--line)" stroke-width="1"/>`);
-  }
-  for (let i = 0; i <= 4; i++) {
-    const gy = PAD + (i / 4) * (H - 2 * PAD);
-    grid.push(`<line x1="${PAD}" y1="${gy}" x2="${W - PAD}" y2="${gy}" stroke="var(--line)" stroke-width="1"/>`);
-  }
-  const markers = cities
-    .map((c) => {
-      const x = px(c.lng);
-      const y = py(c.lat);
-      const has = c.lead_count > 0;
-      const r = has ? 8 + Math.min(c.lead_count, 8) * 2.5 : 7;
-      const color = !has ? 'var(--muted)' : c.hot > 0 ? 'var(--danger)' : c.warm > 0 ? 'var(--warn)' : 'var(--muted)';
-      const fillOpacity = has ? 0.85 : 0.12;
-      return `<g data-city-marker="${esc(c.city)}" style="cursor:pointer">
-        <circle cx="${x}" cy="${y}" r="${r}" fill="${color}" fill-opacity="${fillOpacity}" stroke="${color}" stroke-width="1.5"><title>${esc(c.city)}: ${c.lead_count} lead(s)${
-        has ? `, avg score ${c.avg_score}` : ', no leads yet'
-      }</title></circle>
-        <text x="${x}" y="${y - r - 5}" text-anchor="middle" font-size="11" fill="var(--ink)" style="font-weight:600">${esc(c.city)}</text>
-        ${has ? `<text x="${x}" y="${y + 3}" text-anchor="middle" font-size="10" fill="#fff" style="font-weight:700">${c.lead_count}</text>` : ''}
-      </g>`;
-    })
-    .join('');
-  return `<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;background:var(--panel);border-radius:10px">${grid.join('')}${markers}</svg></div>`;
 }
 
 // ---------- leads ----------
@@ -400,34 +466,143 @@ async function openLeadDetail(id) {
 
 // ---------- add lead ----------
 
+const PLATFORMS = ['Instagram', 'LinkedIn', 'Threads', 'X', 'Reddit', 'Facebook groups', 'Upwork', 'Fiverr', 'Contra', 'Referral', 'Walk-in', 'Other'];
+
 function paintAdd() {
-  $('hunterBody').innerHTML = `<div class="card" style="max-width:720px">
-    <h3 style="margin-bottom:10px">Add a Lead</h3>
-    <div class="notice" style="margin-bottom:10px">Only enter business details the business published itself - its website, Google profile, or public bio. Never a personal number or anything from a private group.</div>
+  $('hunterBody').innerHTML = `
+  <div class="title" style="margin-bottom:10px"><h2 style="margin:0">Add leads</h2><p>For leads your team spots by hand: Instagram, LinkedIn, Threads, X, Reddit, Facebook groups, Upwork, Fiverr, Contra, referrals and walk-ins. The tool audits the website, scores each lead${cfg.enabled ? ' and drafts outreach for your approval' : ''}.</p></div>
+  <div class="notice warn" style="margin-bottom:12px">Only add business details the business published itself: website, Google profile, bio or company page. Never personal numbers or anything from private groups.</div>
+  <div class="card" style="margin-bottom:14px">
     <form id="addLeadForm"><div class="fgrid">
-      <div class="field full"><label>Business name *</label><input id="al1" required></div>
+      <div class="field"><label>Business name *</label><input id="al1" required></div>
       <div class="field"><label>Niche</label><select id="al2">${Object.entries(NICHES).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select></div>
       <div class="field"><label>Location</label><select id="al3">${CITIES.map((c) => `<option>${esc(c)}</option>`).join('')}</select></div>
-      <div class="field"><label>Website</label><input id="al4" type="url" placeholder="https://..."></div>
       <div class="field"><label>Instagram</label><input id="al5" placeholder="@handle"></div>
-      <div class="field"><label>LinkedIn</label><input id="al6" placeholder="linkedin.com/company/..."></div>
-      <div class="field"><label>Email</label><input id="al7" type="email"></div>
-      <div class="field"><label>Phone</label><input id="al8"></div>
-      <div class="field"><label>Contact name</label><input id="al9"></div>
-      <div class="field"><label>Contact role</label><input id="al10"></div>
-      <div class="field"><label>Why now (signal)</label><select id="al11">${Object.entries(SIGNALS).map(([k, v]) => `<option value="${k}" ${k === 'manual' ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
-      <div class="field"><label>Signal detail</label><input id="al12" placeholder="e.g. Opened 2 weeks ago"></div>
-      <div class="field"><label>Google rating</label><input id="al13" type="number" step="0.1" min="0" max="5"></div>
-      <div class="field"><label>Google reviews</label><input id="al14" type="number" min="0"></div>
-      <div class="field"><label>Instagram followers</label><input id="al15" type="number" min="0"></div>
-      <div class="field"><label>Last Instagram post (days ago)</label><input id="al16" type="number" min="0"></div>
-      <div class="field full"><label>Notes</label><textarea id="al17"></textarea></div>
+      <div class="field"><label>Website</label><input id="al4" type="url" placeholder="optional"></div>
+      <div class="field"><label>Found on</label><select id="alPlat">${PLATFORMS.map((p) => `<option>${esc(p)}</option>`).join('')}</select></div>
+      <div class="field"><label>Signal</label><select id="al11">${Object.entries(SIGNALS).map(([k, v]) => `<option value="${k}" ${k === 'manual' ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
+      <div class="field"><label>Business email</label><input id="al7" type="email"></div>
+      <div class="field full"><label>What did they post or need?</label><textarea id="al12"></textarea></div>
     </div>
-    <button class="btn" id="alSubmit" style="margin-top:10px">${icon('plus')}<span>Add &amp; Audit</span></button>
+    <details style="margin-top:8px"><summary class="mini" style="cursor:pointer">More details (optional)</summary>
+      <div class="fgrid" style="margin-top:8px">
+        <div class="field"><label>LinkedIn</label><input id="al6" placeholder="linkedin.com/company/..."></div>
+        <div class="field"><label>Phone</label><input id="al8"></div>
+        <div class="field"><label>Contact name</label><input id="al9"></div>
+        <div class="field"><label>Contact role</label><input id="al10"></div>
+        <div class="field"><label>Google rating</label><input id="al13" type="number" step="0.1" min="0" max="5"></div>
+        <div class="field"><label>Google reviews</label><input id="al14" type="number" min="0"></div>
+        <div class="field"><label>Instagram followers</label><input id="al15" type="number" min="0"></div>
+        <div class="field"><label>Last Instagram post (days ago)</label><input id="al16" type="number" min="0"></div>
+        <div class="field full"><label>Notes</label><textarea id="al17"></textarea></div>
+      </div>
+    </details>
+    <button class="btn" id="alSubmit" style="margin-top:10px">${icon('plus')}<span>Add and audit</span></button>
     <div id="addLoading" class="mini hidden" style="margin-top:8px">Checking the website and scoring the lead${cfg.enabled ? ', then drafting outreach' : ''}…</div>
     </form>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:6px">Bulk import</h3>
+    <div class="mini" style="margin-bottom:8px">Upload a CSV with columns: <b>name</b> (required), niche, city, website, instagram, linkedin, phone, contact_name, contact_role, contact_email (or email), signal_type, source_platform, source_url, notes, and optionally lat, lng. Each row is audited, scored${cfg.enabled ? ' and drafted' : ''} the same way as a single lead. Up to 200 rows at a time.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input type="file" id="bulkFile" accept=".csv,text/csv">
+      <button class="btn alt" id="bulkGo" type="button">Import</button>
+      <button class="btn alt" id="bulkTpl" type="button">Download template</button>
+    </div>
+    <div id="bulkOut" class="mini" style="margin-top:10px"></div>
   </div>`;
   $('addLeadForm').onsubmit = submitAdd;
+  $('bulkGo').onclick = runBulkImport;
+  $('bulkTpl').onclick = () => {
+    const csv = 'name,niche,city,website,instagram,linkedin,phone,contact_name,contact_role,contact_email,signal_type,source_platform,source_url,notes\n"Example Cafe",cafe_restaurant,Bangalore,https://example.com,@examplecafe,,,,,hello@example.com,new_opening,Instagram,,Posted opening reel\n';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'client-hunter-leads-template.csv';
+    a.click();
+  };
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (c === '"') q = false;
+      else cell += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); cell = '';
+      if (row.some((x) => x.trim())) rows.push(row);
+      row = [];
+    } else cell += c;
+  }
+  row.push(cell);
+  if (row.some((x) => x.trim())) rows.push(row);
+  return rows;
+}
+
+// Accept either the internal key or the visible label for niche / signal / city.
+function matchKey(map, value, fallback) {
+  const v = String(value || '').trim().toLowerCase();
+  if (!v) return fallback;
+  const hit = Object.entries(map).find(([k, label]) => k.toLowerCase() === v || String(label).toLowerCase() === v);
+  return hit ? hit[0] : fallback;
+}
+
+async function runBulkImport() {
+  const out = $('bulkOut');
+  const file = $('bulkFile').files[0];
+  if (!file) { out.textContent = 'Choose a CSV file first.'; return; }
+  const table = parseCsv(await file.text());
+  if (table.length < 2) { out.textContent = 'That file has no data rows.'; return; }
+  const head = table[0].map((h) => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  const get = (r, ...names) => {
+    for (const n of names) { const i = head.indexOf(n); if (i >= 0 && r[i] != null && String(r[i]).trim()) return String(r[i]).trim(); }
+    return '';
+  };
+  if (!head.includes('name')) { out.textContent = 'The CSV needs a "name" column.'; return; }
+  const items = table.slice(1, 201).map((r) => ({
+    name: get(r, 'name'),
+    niche: matchKey(NICHES, get(r, 'niche'), 'other'),
+    city: CITIES.find((c) => c.toLowerCase() === get(r, 'city').toLowerCase()) || get(r, 'city'),
+    website: get(r, 'website'),
+    instagram: get(r, 'instagram'),
+    linkedin: get(r, 'linkedin'),
+    phone: get(r, 'phone'),
+    contact_name: get(r, 'contact_name'),
+    contact_role: get(r, 'contact_role'),
+    email: get(r, 'contact_email', 'email'),
+    signal_type: matchKey(SIGNALS, get(r, 'signal_type', 'signal'), 'manual'),
+    source_platform: get(r, 'source_platform', 'found_on'),
+    signal_title: get(r, 'source_url'),
+    notes: get(r, 'notes'),
+    lat: get(r, 'lat'),
+    lng: get(r, 'lng'),
+  }));
+  const btn = $('bulkGo');
+  btn.disabled = true;
+  let added = 0, drafted = 0;
+  const skipped = [];
+  try {
+    for (let i = 0; i < items.length; i += 10) {
+      out.textContent = `Auditing and scoring… ${Math.min(i + 10, items.length)} of ${items.length}`;
+      const r = await api('/api/hunter/leads/bulk', { method: 'POST', body: JSON.stringify({ rows: items.slice(i, i + 10) }) });
+      added += r.added;
+      drafted += r.drafted;
+      r.skipped.forEach((s) => skipped.push({ ...s, row: s.row + i }));
+    }
+  } catch (e) {
+    skipped.push({ row: '-', reason: e.message || 'import stopped' });
+  }
+  btn.disabled = false;
+  out.innerHTML = `<b>${added}</b> lead(s) added${cfg.enabled ? `, ${drafted} drafted for approval` : ''}.${
+    skipped.length ? `<br>Skipped ${skipped.length}: ${skipped.slice(0, 8).map((s) => `row ${s.row}${s.name ? ' (' + esc(s.name) + ')' : ''} - ${esc(s.reason)}`).join('; ')}` : ''
+  }`;
+  if (added) toast(`${added} leads imported`);
 }
 
 async function submitAdd(e) {
@@ -448,6 +623,7 @@ async function submitAdd(e) {
     contact_role: $('al10').value,
     signal_type: $('al11').value,
     signal_title: $('al12').value,
+    source_platform: $('alPlat').value,
     gmb_rating: $('al13').value || null,
     gmb_reviews: $('al14').value || null,
     ig_followers: $('al15').value || null,
