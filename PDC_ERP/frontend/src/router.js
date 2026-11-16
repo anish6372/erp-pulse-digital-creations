@@ -115,7 +115,7 @@ const sections = () => {
   if (!isSales) return EMPLOYEE_SECTIONS;
   return [
     ...EMPLOYEE_SECTIONS.slice(0, 2),
-    { id: 'growth', label: 'Growth', icon: 'marketing', items: [['leads', 'target', 'Leads'], ['hunter', 'radar', 'Client Hunter']] },
+    { id: 'growth', label: 'Growth', icon: 'marketing', items: [['leads', 'target', 'Leads']] },
     ...EMPLOYEE_SECTIONS.slice(2),
   ];
 };
