@@ -77,7 +77,7 @@ router.get('/instagram/connect/start', requireAdmin, (req, res) => {
   const nonce = uid();
   pendingOAuth.set(nonce, { clientId, adminId: req.user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
 
-  const scope = ['instagram_basic', 'instagram_manage_insights', 'pages_show_list', 'business_management'].join(',');
+  const scope = ['instagram_basic', 'instagram_manage_insights', 'pages_show_list', 'pages_read_engagement', 'business_management'].join(',');
   const url = new URL('https://www.facebook.com/' + GRAPH_VERSION + '/dialog/oauth');
   url.searchParams.set('client_id', process.env.META_APP_ID);
   url.searchParams.set('redirect_uri', process.env.META_REDIRECT_URI);
