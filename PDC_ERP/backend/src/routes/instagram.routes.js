@@ -239,7 +239,7 @@ router.post('/instagram/sync', requireAdmin, async (req, res) => {
     const upsertPost = db.prepare(
       `INSERT INTO marketing_reels(client_id,title,reel_url,posted_at,reach,plays,likes,comments,shares,saves,created_by,created_at,updated_at,source,ig_media_id,post_type)
        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(client_id, ig_media_id) DO UPDATE SET title=excluded.title, reel_url=excluded.reel_url, reach=excluded.reach, plays=excluded.plays,
+       ON CONFLICT(client_id, ig_media_id) WHERE ig_media_id IS NOT NULL DO UPDATE SET title=excluded.title, reel_url=excluded.reel_url, reach=excluded.reach, plays=excluded.plays,
          likes=excluded.likes, comments=excluded.comments, shares=excluded.shares, saves=excluded.saves, post_type=excluded.post_type, updated_at=excluded.updated_at`
     );
 
