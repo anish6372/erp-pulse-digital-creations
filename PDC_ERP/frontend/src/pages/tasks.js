@@ -2,6 +2,7 @@ import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, status, toast, confirmDialog } from '../lib/dom.js';
 import { refresh } from '../router.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 import { openTaskModal } from '../components/modals.js';
 
 export function renderTasks() {
@@ -11,7 +12,10 @@ export function renderTasks() {
     admin ? 'Assign and manage all work.' : 'Only tasks assigned to you are shown.'
   }</p></div><div class="card"><div class="sectionHead"><h3>Task Board</h3>${admin ? '<button class="btn" id="assignTaskBtn">+ Assign Task</button>' : ''}</div><div class="filters"><select id="tsFilter"><option value="">All Status</option><option>Not Started</option><option>In Progress</option><option>Blocked</option><option>Done</option></select></div><div id="taskRows"></div></div>`;
   if (admin) $('assignTaskBtn').onclick = openTaskModal;
-  $('tsFilter').onchange = renderTaskRows;
+  $('tsFilter').onchange = () => {
+    resetPage('tasks');
+    renderTaskRows();
+  };
   renderTaskRows();
 }
 
@@ -19,7 +23,9 @@ function renderTaskRows() {
   const { me, boot } = state;
   const admin = me.role === 'Admin';
   const sf = $('tsFilter')?.value || '';
-  const rows = boot.tasks.filter((t) => !sf || t.status === sf);
+  const all = boot.tasks.filter((t) => !sf || t.status === sf);
+  const pg = paginate('tasks', all);
+  const rows = pg.rows;
   $('taskRows').innerHTML = rows.length
     ? `<table class="table"><thead><tr><th>Task</th><th>Client</th><th>Owner</th><th>Priority</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows
         .map(
@@ -34,8 +40,9 @@ function renderTaskRows() {
               admin ? `<button class="btn danger" data-del-task="${t.id}">Delete</button>` : ''
             }</td></tr>`
         )
-        .join('')}</tbody></table>`
+        .join('')}</tbody></table>${pg.html}`
     : '<div class="empty">No tasks found.</div>';
+  bindPager($('taskRows'), 'tasks', renderTaskRows);
   $('taskRows')
     .querySelectorAll('select[data-task-id]')
     .forEach((sel) => (sel.onchange = () => updateTaskStatus(Number(sel.dataset.taskId), sel.value)));

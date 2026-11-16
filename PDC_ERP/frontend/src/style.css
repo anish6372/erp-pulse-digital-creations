@@ -920,3 +920,10 @@ body.app.dark .t-blue{background:#1c2a4a}body.app.dark .t-green{background:#1630
 @media(max-width:1280px){.d2-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.r-three{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:1000px){.r-chart,.r-two,.r-three{grid-template-columns:1fr}.tt-row{grid-template-columns:34px minmax(0,1fr) auto}.tt-row .prio,.tt-row .tt-due{display:none}}
 @media(max-width:640px){.d2-stats{grid-template-columns:1fr 1fr}.stat-foot{white-space:normal}}
+
+/* Pagination bar under every long list (20 rows per page) */
+.pager{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 2px 2px}
+.pager .pg-btn{padding:4px 10px;min-width:32px}
+.pager .pg-btn.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+.pager .pg-btn[disabled]{opacity:.4;cursor:default}
+.pager .pg-gap{color:var(--muted);padding:0 2px}

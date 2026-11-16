@@ -2,6 +2,7 @@ import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, dateNow, status, kpi, toast, confirmDialog } from '../lib/dom.js';
 import { cache } from '../lib/cache.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 import { openUserModal } from '../components/modals.js';
 
 export async function renderPayroll() {
@@ -24,7 +25,10 @@ export async function renderPayroll() {
       <div class="calc-result"><div><span>Per day</span><b id="calcPerDay">₹0</b></div><div><span>Deduction at month end</span><b id="calcDeduction">₹0</b></div><div><span>Net after deduction</span><b id="calcNet">₹0</b></div></div>
     </div>
   </div>`;
-  $('payRefreshBtn').onclick = loadPayroll;
+  $('payRefreshBtn').onclick = () => {
+    resetPage('payroll');
+    loadPayroll();
+  };
   $('calcEmployee').onchange = loadCalculatorEmployee;
   ['calcSalary', 'calcDays', 'calcPresent', 'calcLeave', 'calcHalf'].forEach((id) => ($(id).oninput = runSalaryCalculator));
   await loadPayroll();
@@ -34,7 +38,8 @@ export async function renderPayroll() {
 async function loadPayroll() {
   const month = $('payMonth').value;
   const d = await api('/api/payroll?month=' + month);
-  const rows = d.rows
+  const pg = paginate('payroll', d.rows);
+  const rows = pg.rows
     .map(
       (r) =>
         `<tr><td><b>${esc(r.name || '')}</b><div class="mini">${r.present} present / ${r.working_days} working days</div></td><td><b>₹${Number(r.base_salary || 0).toLocaleString(
@@ -74,7 +79,8 @@ async function loadPayroll() {
     d.closed ? 'finalized' : 'open'
   )}</div><div class="tableWrap"><table class="table"><thead><tr><th>Employee</th><th>Salary</th><th>Present</th><th>Half Day</th><th>Leave</th><th>Absent</th><th>Deduction</th><th>Net Salary</th><th>Payment</th><th>Edit</th></tr></thead><tbody>${
     rows || '<tr><td colspan="10" class="empty">No active employees.</td></tr>'
-  }</tbody></table></div>`;
+  }</tbody></table></div>${pg.html}`;
+  bindPager($('payBody'), 'payroll', loadPayroll);
   $('payFinalizeBtn').onclick = d.closed ? reopenPayroll : finalizePayroll;
   $('payBody')
     .querySelectorAll('[data-pay]')

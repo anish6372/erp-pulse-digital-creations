@@ -5,6 +5,7 @@ import { $, esc, dateNow, kpi, toast, openModal, closeModal, animateCountUps, co
 import { icon } from '../lib/icons.js';
 import { compareFaces, MATCH_THRESHOLD } from '../lib/face.js';
 import { refresh } from '../router.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 
 const DEPARTMENTS = ['General', 'Production', 'Creative', 'Client Relations', 'Client Management', 'HR / Operations', 'Sales', 'Management'];
 
@@ -105,7 +106,8 @@ function actionButtons(r) {
 
 function render() {
   const count = (fn) => rows.filter(fn).length;
-  const shown = rows.filter(FILTERS.find((f) => f[0] === filter)[2]);
+  const pg = paginate('onboarding', rows.filter(FILTERS.find((f) => f[0] === filter)[2]));
+  const shown = pg.rows;
   const awaiting = count((r) => r.status === 'Submitted');
   $('page-onboarding').innerHTML = `<div class="title"><h1>Employee Onboarding</h1><p>Invite a new joiner — they verify their Aadhaar with a live selfie, sign the NDA, and you approve to create their account.</p></div>
   <div class="grid g5" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
@@ -128,12 +130,13 @@ function render() {
             }</td><td class="mini">${fmtDate(r.submitted_at || r.opened_at || r.created_at)}</td><td>${actionButtons(r)}</td></tr>`
         )
         .join('') || '<tr><td colspan="6" class="empty">Nothing here yet. Use “+ New Joiner” to start an onboarding.</td></tr>'
-    }</tbody></table></div></div>`;
+    }</tbody></table></div>${pg.html}</div>`;
 
   $('obNewBtn').onclick = openInviteModal;
   $('obNdaBtn').onclick = openNdaTemplateModal;
   const root = $('page-onboarding');
-  root.querySelectorAll('[data-ob-filter]').forEach((b) => (b.onclick = () => ((filter = b.dataset.obFilter), render())));
+  root.querySelectorAll('[data-ob-filter]').forEach((b) => (b.onclick = () => ((filter = b.dataset.obFilter), resetPage('onboarding'), render())));
+  bindPager(root, 'onboarding', render);
   root.querySelectorAll('[data-ob-review]').forEach((b) => (b.onclick = () => openReviewModal(Number(b.dataset.obReview))));
   root.querySelectorAll('[data-ob-link]').forEach((b) => (b.onclick = () => regenerateLink(Number(b.dataset.obLink))));
   root.querySelectorAll('[data-ob-del]').forEach((b) => (b.onclick = () => deleteOnboarding(Number(b.dataset.obDel))));

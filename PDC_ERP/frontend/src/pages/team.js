@@ -2,6 +2,7 @@ import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, initials, status, toast, confirmDialog } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 import { openUserModal } from '../components/modals.js';
 import { refresh } from '../router.js';
 
@@ -11,7 +12,8 @@ export function renderTeam() {
   if (state.me.role !== 'Admin') return;
   const { boot } = state;
   const inactiveCount = boot.users.filter((u) => !u.active).length;
-  const rows = boot.users.filter((u) => u.active || showInactive);
+  const pg = paginate('team', boot.users.filter((u) => u.active || showInactive));
+  const rows = pg.rows;
   $('page-team').innerHTML = `<div class="title"><h1>Team</h1><p>Roles, status and live workload.</p></div>
   <div class="sectionHead"><div>${
     inactiveCount ? `<button class="btn alt" id="toggleInactiveBtn">${showInactive ? 'Hide' : 'Show'} ${inactiveCount} removed</button>` : ''
@@ -29,11 +31,13 @@ export function renderTeam() {
           u.id !== state.me.id ? `<button class="btn danger" data-remove-member="${u.id}" title="Deactivate this employee">${icon('trash')}</button>` : ''
         }</div></div>`
     )
-    .join('')}</div>`;
+    .join('')}</div>${pg.html}`;
+  bindPager($('page-team'), 'team', renderTeam);
   $('addMemberBtn').onclick = () => openUserModal();
   if ($('toggleInactiveBtn'))
     $('toggleInactiveBtn').onclick = () => {
       showInactive = !showInactive;
+      resetPage('team');
       renderTeam();
     };
   $('page-team')

@@ -2,6 +2,7 @@ import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, toast, confirmDialog, externalUrl } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 import { openMeetingModal } from '../components/modals.js';
 
 export async function renderMeetings() {
@@ -52,13 +53,17 @@ async function loadMeetings() {
   </div>`;
   };
 
+  const upUp = paginate('meetings-up', upcoming);
+  const upPast = paginate('meetings-past', past);
   $('meetingsBody').innerHTML = `
     <div class="sectionHead" style="margin-top:4px"><h3 style="font-size:13px">Upcoming</h3></div>
-    ${upcoming.length ? upcoming.map((m) => card(m, false)).join('') : '<div class="empty">No upcoming meetings.</div>'}
+    ${upcoming.length ? upUp.rows.map((m) => card(m, false)).join('') + upUp.html : '<div class="empty">No upcoming meetings.</div>'}
     <div class="sectionHead" style="margin-top:14px"><h3 style="font-size:13px">Past</h3></div>
-    ${past.length ? past.slice(0, 10).map((m) => card(m, true)).join('') : '<div class="empty">No past meetings yet.</div>'}
+    ${past.length ? upPast.rows.map((m) => card(m, true)).join('') + upPast.html : '<div class="empty">No past meetings yet.</div>'}
   `;
 
+  bindPager($('meetingsBody'), 'meetings-up', loadMeetings);
+  bindPager($('meetingsBody'), 'meetings-past', loadMeetings);
   if (admin) {
     $('meetingsBody')
       .querySelectorAll('[data-edit-meeting]')

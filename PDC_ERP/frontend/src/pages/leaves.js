@@ -2,18 +2,21 @@ import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, status, toast } from '../lib/dom.js';
 import { refresh, renderPage } from '../router.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 import { openLeaveModal } from '../components/modals.js';
 
 export function renderLeaves() {
   const { me, boot } = state;
-  const rows = boot.leaves;
+  const pg = paginate('leaves', boot.leaves);
+  const rows = pg.rows;
+  const hasAny = boot.leaves.length > 0;
   const admin = me.role === 'Admin';
   $('page-leaves').innerHTML = `<div class="title"><h1>${admin ? 'Leave & Half-Day Requests' : 'My Leave Requests'}</h1><p>${
     admin ? 'Approve/reject requests from one management panel.' : 'Submit and track your requests.'
   }</p></div><div class="card"><div class="sectionHead"><h3>${admin ? 'Notifications & History' : 'My Requests'}</h3>${
     !admin ? '<button class="btn" id="requestLeaveBtn2">+ Request Leave</button>' : ''
   }</div>${
-    rows.length
+    hasAny
       ? `<table class="table"><thead><tr><th>Date</th><th>Employee</th><th>Type</th><th>Reason</th><th>Status</th>${
           admin ? '<th>Action</th>' : ''
         }</tr></thead><tbody>${rows
@@ -31,10 +34,11 @@ export function renderLeaves() {
                   : ''
               }</tr>`
           )
-          .join('')}</tbody></table>`
+          .join('')}</tbody></table>${pg.html}`
       : '<div class="empty">No leave requests.</div>'
   }</div>`;
   if (!admin) $('requestLeaveBtn2').onclick = openLeaveModal;
+  bindPager($('page-leaves'), 'leaves', renderLeaves);
   $('page-leaves')
     .querySelectorAll('[data-approve]')
     .forEach((b) => (b.onclick = () => reviewLeave(Number(b.dataset.approve), 'Approved')));

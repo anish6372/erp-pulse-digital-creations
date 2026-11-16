@@ -4,6 +4,7 @@ import { $, esc, kpi, toast, animateCountUps, confirmDialog } from '../lib/dom.j
 import { icon } from '../lib/icons.js';
 import { pieChart, barSpark, lineChart } from '../lib/charts.js';
 import { openReelModal, openAudienceModal, openGrowthModal } from '../components/modals.js';
+import { paginate, bindPager } from '../lib/paginate.js';
 
 let currentClientId = null;
 let currentTab = 'today';
@@ -301,6 +302,8 @@ async function loadReels() {
 
 function renderReelsBody() {
   const rows = cache.reels;
+  const pgKey = 'reels-' + currentClientId;
+  const pg = paginate(pgKey, rows);
   const totalReach = rows.reduce((a, r) => a + r.reach, 0);
   const totalEngagement = rows.reduce((a, r) => a + r.likes + r.comments + r.shares + r.saves, 0);
   const best = rows.slice().sort((a, b) => b.reach - a.reach)[0];
@@ -345,7 +348,7 @@ function renderReelsBody() {
     ${rows.length ? `<div class="card" style="margin-bottom:14px"><div class="sectionHead"><h3 style="font-size:13px">Reach per post</h3><div class="mini">latest ${recent.length}, oldest on the left</div></div>${chart}</div>` : ''}
     <div class="tableWrap"><table class="table"><thead><tr><th>Post</th><th>Posted</th><th>Reach</th><th>Plays</th><th>Likes</th><th>Comments</th><th>Shares</th><th>Saves</th><th>Interactions</th><th>Eng. rate</th><th>Edit</th></tr></thead><tbody>
       ${
-        rows
+        pg.rows
           .map(
             (r) =>
               `<tr><td><b>${esc(r.title)}</b> ${r.post_type ? `<span class="badge gray">${esc(r.post_type)}</span> ` : ''}${r.source === 'instagram' ? '<span class="badge blue">Synced</span>' : '<span class="badge gray">Manual</span>'}${
@@ -358,7 +361,8 @@ function renderReelsBody() {
           )
           .join('') || '<tr><td colspan="11" class="empty">No posts yet. Connect Instagram and press Sync Now.</td></tr>'
       }
-    </tbody></table></div>`;
+    </tbody></table></div>${pg.html}`;
+  bindPager($('mktBody'), pgKey, renderReelsBody);
 
   $('logReelBtn').onclick = () => openReelModal(currentClientId);
   $('mktBody')

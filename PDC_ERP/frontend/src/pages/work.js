@@ -1,17 +1,20 @@
 import { state } from '../lib/state.js';
 import { $, esc, externalUrl, downloadUrl, fileLabel } from '../lib/dom.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 import { openReportModal } from '../components/modals.js';
 
 export function renderWork() {
   const { me, boot } = state;
   const admin = me.role === 'Admin';
-  const rows = boot.reports;
+  const pg = paginate('work', boot.reports);
+  const rows = pg.rows;
+  const hasAny = boot.reports.length > 0;
   $('page-work').innerHTML = `<div class="title"><h1>${admin ? 'Daily Work Reports' : 'Submit Work'}</h1><p>${
     admin ? 'All employee work submissions and evidence.' : 'Submit your completed work with Drive links or attachments.'
   }</p></div><div class="card"><div class="sectionHead"><h3>${admin ? 'Work History' : 'My Work Submissions'}</h3>${
     !admin ? '<button class="btn" id="submitWorkBtn2">+ Submit Work</button>' : ''
   }</div>${
-    rows.length
+    hasAny
       ? `<table class="table"><thead><tr><th>Date</th><th>Employee</th><th>Client</th><th>Task</th><th>Hours</th><th>Work</th><th>Links</th></tr></thead><tbody>${rows
           .map(
             (r) =>
@@ -21,8 +24,9 @@ export function renderWork() {
                 r.poster_drive_link ? `<a href="${esc(externalUrl(r.poster_drive_link))}" target="_blank">Poster</a>` : ''
               } ${r.attachment_path ? `<a href="${esc(downloadUrl(r.attachment_path))}" download="${esc(fileLabel(r.attachment_path))}">Download attachment</a>` : ''}</td></tr>`
           )
-          .join('')}</tbody></table>`
+          .join('')}</tbody></table>${pg.html}`
       : '<div class="empty">No work submitted yet.</div>'
   }</div>`;
   if (!admin) $('submitWorkBtn2').onclick = openReportModal;
+  bindPager($('page-work'), 'work', renderWork);
 }

@@ -2,6 +2,7 @@
 // hand, get an AI-drafted first-touch message per available channel, approve or reject it
 // (nothing sends itself), work approved ones as tasks, and a rough market-size estimate.
 // Admin and Sales department only, same access as the existing Leads page.
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 import { api, runJob } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, toast, openModal, closeModal, confirmDialog, kpi } from '../lib/dom.js';
@@ -377,7 +378,9 @@ async function loadLeads() {
   return d.rows || [];
 }
 
-function renderLeadsList(rows) {
+function renderLeadsList(allRows) {
+  const pg = paginate('hunter-leads', allRows);
+  const rows = pg.rows;
   $('hunterBody').innerHTML = `<div class="card">
     <div class="sectionHead">
       <div class="pnl">
@@ -405,13 +408,15 @@ function renderLeadsList(rows) {
             )
             .join('')
         : '<tr><td colspan="6" class="empty">No leads match these filters.</td></tr>'
-    }</tbody></table></div>
+    }</tbody></table></div>${pg.html}
   </div>`;
+  bindPager($('hunterBody'), 'hunter-leads', () => renderLeadsList(allRows));
   ['hlSearch', 'hlTier', 'hlNiche', 'hlStatus'].forEach((id) => {
     const el = $(id);
     const ev = id === 'hlSearch' ? 'input' : 'change';
     el.addEventListener(ev, async () => {
       filters = { q: $('hlSearch').value, tier: $('hlTier').value, niche: $('hlNiche').value, status: $('hlStatus').value };
+      resetPage('hunter-leads');
       const caret = el.selectionStart;
       renderLeadsList(await loadLeads());
       // The list is rebuilt on every change, which dropped focus after each typed character -

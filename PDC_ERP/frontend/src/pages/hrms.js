@@ -1,11 +1,13 @@
 import { state } from '../lib/state.js';
 import { $, esc, status } from '../lib/dom.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 import { openUserModal } from '../components/modals.js';
 
 export function renderHRMS() {
   if (state.me.role !== 'Admin') return;
   const { boot } = state;
-  $('page-hrms').innerHTML = `<div class="title"><h1>HRMS</h1><p>Every employee master record is editable by Admin.</p></div><div class="card"><div class="sectionHead"><h3>Employee Master</h3><button class="btn" id="addEmployeeBtn">+ Add Employee</button></div><div class="tableWrap"><table class="table"><thead><tr><th>Name</th><th>Employee ID</th><th>Department</th><th>Designation</th><th>Joining</th><th>Salary</th><th>Targets</th><th>Status</th><th>Edit</th></tr></thead><tbody>${boot.users
+  const pg = paginate('hrms', boot.users);
+  $('page-hrms').innerHTML = `<div class="title"><h1>HRMS</h1><p>Every employee master record is editable by Admin.</p></div><div class="card"><div class="sectionHead"><h3>Employee Master</h3><button class="btn" id="addEmployeeBtn">+ Add Employee</button></div><div class="tableWrap"><table class="table"><thead><tr><th>Name</th><th>Employee ID</th><th>Department</th><th>Designation</th><th>Joining</th><th>Salary</th><th>Targets</th><th>Status</th><th>Edit</th></tr></thead><tbody>${pg.rows
     .map(
       (u) =>
         `<tr><td>${esc(u.name)}</td><td>${esc(u.employee_code)}</td><td>${esc(u.department)}</td><td>${esc(u.designation)}</td><td>${esc(u.joining_date)}</td><td>₹${Number(
@@ -14,7 +16,8 @@ export function renderHRMS() {
           u.id
         }">Edit</button></td></tr>`
     )
-    .join('')}</tbody></table></div></div>`;
+    .join('')}</tbody></table></div>${pg.html}</div>`;
+  bindPager($('page-hrms'), 'hrms', renderHRMS);
   $('addEmployeeBtn').onclick = () => openUserModal();
   $('page-hrms')
     .querySelectorAll('[data-edit-user]')

@@ -1,5 +1,6 @@
 import { state } from '../lib/state.js';
 import { $, esc, status } from '../lib/dom.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 import { openClientModal, removeClient } from '../components/modals.js';
 
 let showInactive = false;
@@ -8,7 +9,8 @@ export function renderClients() {
   if (state.me.role !== 'Admin') return;
   const { boot } = state;
   const inactiveCount = boot.clients.filter((c) => !c.active).length;
-  const rows = boot.clients.filter((c) => c.active || showInactive);
+  const pg = paginate('clients', boot.clients.filter((c) => c.active || showInactive));
+  const rows = pg.rows;
   $('page-clients').innerHTML = `<div class="title"><h1>Clients</h1><p>Editable client master for tasks and work reports.</p></div><div class="card"><div class="sectionHead"><h3>Client List</h3><div class="pnl">${
     inactiveCount ? `<button class="btn alt" id="toggleInactiveClientsBtn">${showInactive ? 'Hide' : 'Show'} ${inactiveCount} removed</button>` : ''
   }<button class="btn" id="addClientBtn">+ Add Client</button></div></div><table class="table"><thead><tr><th>Name</th><th>Short Name</th><th>Business Type</th><th>Contact</th><th>Status</th><th></th></tr></thead><tbody>${rows
@@ -18,11 +20,13 @@ export function renderClients() {
           c.active ? 'Active' : 'Inactive'
         )}</td><td class="pnl"><button class="btn alt" data-edit-client="${c.id}">Edit</button><button class="btn danger" data-remove-client="${c.id}">Remove</button></td></tr>`
     )
-    .join('')}</tbody></table></div>`;
+    .join('')}</tbody></table>${pg.html}</div>`;
+  bindPager($('page-clients'), 'clients', renderClients);
   $('addClientBtn').onclick = () => openClientModal();
   if ($('toggleInactiveClientsBtn'))
     $('toggleInactiveClientsBtn').onclick = () => {
       showInactive = !showInactive;
+      resetPage('clients');
       renderClients();
     };
   $('page-clients')

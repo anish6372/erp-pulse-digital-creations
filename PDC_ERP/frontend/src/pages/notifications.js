@@ -3,6 +3,7 @@ import { $, esc, openModal, closeModal, toast } from '../lib/dom.js';
 import { state } from '../lib/state.js';
 import { renderPage } from '../router.js';
 import { openChat, openGroupChat } from './chat.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 
 let lastUnreadNotifications = Number(sessionStorage.getItem('pdc_last_unread') || '0');
 
@@ -20,13 +21,19 @@ export async function updateNotifications() {
   return n;
 }
 
+export function resetNotificationsPage() {
+  resetPage('notifications');
+}
+
 export async function openNotifications() {
   const n = await api('/api/notifications');
-  const rows = n.rows || [];
+  const all = n.rows || [];
+  const pg = paginate('notifications', all);
+  const rows = pg.rows;
   openModal(
     'Notifications',
     `<div class="sectionHead"><h3>Recent Notifications</h3><button class="btn alt" id="markAllReadBtn">Mark all read</button></div>${
-      rows.length
+      all.length
         ? rows
             .map(
               (x) =>
@@ -34,10 +41,11 @@ export async function openNotifications() {
                   x.body
                 )}</div><div class="mini" style="margin-top:4px">${new Date(x.created_at).toLocaleString('en-IN')}</div></div>`
             )
-            .join('')
+            .join('') + pg.html
         : '<div class="empty">No notifications.</div>'
     }`
   );
+  bindPager(document, 'notifications', openNotifications);
   $('markAllReadBtn').onclick = markAllNotifications;
   document.querySelectorAll('[data-notif-id]').forEach((el) => {
     const n = rows.find((x) => x.id === Number(el.dataset.notifId));

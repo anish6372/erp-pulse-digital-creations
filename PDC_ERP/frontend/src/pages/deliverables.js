@@ -2,6 +2,7 @@ import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, status, externalUrl, downloadUrl, fileLabel } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 
 let cache = [];
 
@@ -17,7 +18,10 @@ export async function renderDeliverables() {
     </div>
     <div id="deliverablesBody"></div>
   </div>`;
-  $('deliverablesSearch').addEventListener('input', renderList);
+  $('deliverablesSearch').addEventListener('input', () => {
+    resetPage('deliverables');
+    renderList();
+  });
   await loadDeliverables();
 }
 
@@ -52,8 +56,9 @@ function renderList() {
 
   $('deliverablesCount').textContent = `${rows.length} completed task${rows.length === 1 ? '' : 's'}`;
 
+  const pg = paginate('deliverables', rows);
   $('deliverablesBody').innerHTML = rows.length
-    ? rows
+    ? pg.rows
         .map(
           (t) => `<div class="card" style="margin-bottom:12px;background:#f8f9fb">
         <div class="sectionHead">
@@ -84,6 +89,7 @@ function renderList() {
         }
       </div>`
         )
-        .join('')
+        .join('') + pg.html
     : `<div class="empty">${q ? 'No completed tasks match your search.' : 'No completed tasks yet.'}</div>`;
+  bindPager($('deliverablesBody'), 'deliverables', renderList);
 }

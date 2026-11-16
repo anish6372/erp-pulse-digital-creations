@@ -5,7 +5,7 @@ import { api } from './lib/api.js';
 import { state, setToken } from './lib/state.js';
 import { $, closeModal } from './lib/dom.js';
 import { bootApp, refresh, openCmd, setSlim, openDrawer, closeDrawer, renderPage } from './router.js';
-import { openNotifications } from './pages/notifications.js';
+import { openNotifications, resetNotificationsPage } from './pages/notifications.js';
 import { icons } from './lib/icons.js';
 import { connectSocket, disconnectSocket } from './lib/socket.js';
 import { startOnboarding } from './pages/onboardingPublic.js';
@@ -259,7 +259,10 @@ document.addEventListener('visibilitychange', () => {
 
 $('refreshBtn').onclick = refresh;
 
-$('notifBtn').onclick = openNotifications;
+$('notifBtn').onclick = () => {
+  resetNotificationsPage();
+  openNotifications();
+};
 $('chatBtn').onclick = () => renderPage('chat');
 
 // Light / dark switch, remembered per browser.
