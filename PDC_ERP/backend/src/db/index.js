@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const { DatabaseSync } = require('node:sqlite');
 const { passwordHash } = require('../utils/crypto');
 
-const DATA_DIR = path.join(__dirname, '..', '..', 'data');
+// DATA_DIR can be overridden (the automated tests point it at a throw-away folder).
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new DatabaseSync(path.join(DATA_DIR, 'pdc_erp.sqlite'));
@@ -332,9 +333,6 @@ CREATE TABLE IF NOT EXISTS onboardings(
  FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 `);
-try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lat REAL'); } catch(e) {}
-try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lng REAL'); } catch(e) {}
-try { db.exec('ALTER TABLE hunter_leads ADD COLUMN geo_tried INTEGER DEFAULT 0'); } catch(e) {}
 try { db.exec("ALTER TABLE clients ADD COLUMN address TEXT DEFAULT ''"); } catch(e) {}
 try { db.exec("ALTER TABLE clients ADD COLUMN business_type TEXT DEFAULT ''"); } catch(e) {}
 try { db.exec("ALTER TABLE clients ADD COLUMN contact_person TEXT DEFAULT ''"); } catch(e) {}
@@ -612,6 +610,11 @@ for (const [k, v] of Object.entries(defaultSettings)) {
 if (getSetting('salary_divisor', '') === '30') setSetting('salary_divisor', 'working_days');
 
 // ---- AI features (content assistant) ----
+// hunter_leads columns added after the table first shipped (these must run AFTER its CREATE TABLE,
+// otherwise a brand-new database never gets them)
+try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lat REAL'); } catch (e) {}
+try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lng REAL'); } catch (e) {}
+try { db.exec('ALTER TABLE hunter_leads ADD COLUMN geo_tried INTEGER DEFAULT 0'); } catch (e) {}
 try { db.exec("ALTER TABLE clients ADD COLUMN brand_voice TEXT DEFAULT ''"); } catch (e) {}
 db.exec(`
 CREATE TABLE IF NOT EXISTS ai_usage(

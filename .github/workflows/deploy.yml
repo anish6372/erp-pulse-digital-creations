@@ -9,7 +9,35 @@ permissions:
   packages: write
 
 jobs:
+  # Tests run first; a failing test stops the build and the deploy.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            PDC_ERP/backend/package-lock.json
+            PDC_ERP/frontend/package-lock.json
+
+      - name: Backend tests
+        working-directory: PDC_ERP/backend
+        run: |
+          npm ci
+          npm test
+
+      - name: Frontend tests and build
+        working-directory: PDC_ERP/frontend
+        run: |
+          npm ci
+          npm test
+          npm run build
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

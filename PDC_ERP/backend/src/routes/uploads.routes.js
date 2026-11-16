@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const { audit } = require('../utils/audit');
 const { requireAuth } = require('../middleware/auth');
 
-const UPLOADS = path.join(__dirname, '..', '..', 'uploads');
+const UPLOADS = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'uploads');
 fs.mkdirSync(UPLOADS, { recursive: true });
 
 const ALLOWED_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.mp4', '.mov', '.zip']);
