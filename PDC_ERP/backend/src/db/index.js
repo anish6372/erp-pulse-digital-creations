@@ -346,6 +346,10 @@ try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_marketing_reels_ig_media ON
 try { db.exec("ALTER TABLE marketing_audience_geo ADD COLUMN source TEXT DEFAULT 'manual'"); } catch(e) {}
 // Post type (Reel / Image / Video / Carousel) now that every post is synced, not only reels.
 try { db.exec("ALTER TABLE marketing_reels ADD COLUMN post_type TEXT DEFAULT 'Reel'"); } catch(e) {}
+// The post's own picture / video, so the Social page can show and play it (Instagram's links expire, so each sync refreshes them).
+try { db.exec("ALTER TABLE marketing_reels ADD COLUMN media_type TEXT DEFAULT ''"); } catch(e) {}
+try { db.exec("ALTER TABLE marketing_reels ADD COLUMN media_url TEXT DEFAULT ''"); } catch(e) {}
+try { db.exec("ALTER TABLE marketing_reels ADD COLUMN thumbnail_url TEXT DEFAULT ''"); } catch(e) {}
 // 'followers' = who follows the account, 'reached' = who the content was shown to. Manual rows are follower data.
 try { db.exec("ALTER TABLE marketing_audience_geo ADD COLUMN audience TEXT DEFAULT 'followers'"); } catch(e) {}
 db.exec(`CREATE TABLE IF NOT EXISTS marketing_reach_daily(

@@ -231,16 +231,17 @@ router.post('/instagram/sync', requireAdmin, async (req, res) => {
   try {
     // 1) Every recent post — reels, images, videos and carousels — with its own reach.
     const media = await graphGet(`${account.ig_user_id}/media`, {
-      fields: 'id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count',
+      fields: 'id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count,media_url,thumbnail_url',
       limit: 50,
       access_token: token,
     });
 
     const upsertPost = db.prepare(
-      `INSERT INTO marketing_reels(client_id,title,reel_url,posted_at,reach,plays,likes,comments,shares,saves,created_by,created_at,updated_at,source,ig_media_id,post_type)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO marketing_reels(client_id,title,reel_url,posted_at,reach,plays,likes,comments,shares,saves,created_by,created_at,updated_at,source,ig_media_id,post_type,media_type,media_url,thumbnail_url)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(client_id, ig_media_id) WHERE ig_media_id IS NOT NULL DO UPDATE SET title=excluded.title, reel_url=excluded.reel_url, reach=excluded.reach, plays=excluded.plays,
-         likes=excluded.likes, comments=excluded.comments, shares=excluded.shares, saves=excluded.saves, post_type=excluded.post_type, updated_at=excluded.updated_at`
+         likes=excluded.likes, comments=excluded.comments, shares=excluded.shares, saves=excluded.saves, post_type=excluded.post_type, media_type=excluded.media_type, media_url=excluded.media_url,
+         thumbnail_url=excluded.thumbnail_url, updated_at=excluded.updated_at`
     );
 
     let synced = 0;
@@ -263,7 +264,10 @@ router.post('/instagram/sync', requireAdmin, async (req, res) => {
         ts,
         'instagram',
         item.id,
-        postTypeOf(item)
+        postTypeOf(item),
+        item.media_type || '',
+        item.media_url || '',
+        item.thumbnail_url || ''
       );
       synced++;
     }

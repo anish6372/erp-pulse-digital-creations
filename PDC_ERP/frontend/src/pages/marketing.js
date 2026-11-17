@@ -1,6 +1,6 @@
 import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
-import { $, esc, kpi, toast, animateCountUps, confirmDialog } from '../lib/dom.js';
+import { $, esc, kpi, toast, animateCountUps, confirmDialog, openModal } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { pieChart, barSpark, lineChart } from '../lib/charts.js';
 import { openReelModal, openAudienceModal, openGrowthModal } from '../components/modals.js';
@@ -300,6 +300,38 @@ async function loadReels() {
   renderReelsBody();
 }
 
+// A small picture of the post (a still from the video for reels). Instagram's image links expire after a
+// while, so a broken one falls back to a plain placeholder until the next Sync now refreshes it.
+function thumbHtml(r) {
+  const src = r.thumbnail_url || (r.media_type !== 'VIDEO' ? r.media_url : '');
+  if (!src) return '<span class="mini">—</span>';
+  const play = r.media_type === 'VIDEO' ? '<span class="post-play">&#9654;</span>' : '';
+  return `<button class="post-thumb" data-view-post="${r.id}" title="Open this post"><img src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'mini',textContent:'expired'}))">${play}</button>`;
+}
+
+// Plays the reel / video, or shows the picture, right inside the ERP - with its numbers beside it.
+function openPostViewer(r) {
+  if (!r) return;
+  const eng = r.likes + r.comments + r.shares + r.saves;
+  const isVideo = r.media_type === 'VIDEO' && r.media_url;
+  const media = isVideo
+    ? `<video class="post-media" src="${esc(r.media_url)}" poster="${esc(r.thumbnail_url || '')}" controls autoplay playsinline></video>`
+    : r.media_url || r.thumbnail_url
+      ? `<img class="post-media" src="${esc(r.media_url || r.thumbnail_url)}" alt="" referrerpolicy="no-referrer">`
+      : '<div class="empty">No preview saved for this post yet - press Sync now.</div>';
+  openModal(
+    r.post_type || 'Post',
+    `<div class="post-view">${media}
+      <div class="mini" style="margin:10px 0 6px">${esc(r.posted_at)}${r.reel_url ? ` &bull; <a href="${esc(r.reel_url)}" target="_blank" rel="noopener">Open on Instagram</a>` : ''}</div>
+      <div class="wrap" style="margin-bottom:10px">${esc(r.title)}</div>
+      <div class="grid g5">${kpi('Reach', r.reach)}${kpi('Plays', r.plays)}${kpi('Likes', r.likes)}${kpi('Comments', r.comments)}${kpi('Interactions', eng)}</div>
+      <div class="mini" style="margin-top:8px">If the picture or video does not load, Instagram's link has expired - press Sync now to refresh it.</div>
+    </div>`,
+    { wide: true }
+  );
+  animateCountUps($('modalBody'));
+}
+
 function renderReelsBody() {
   const rows = cache.reels;
   const pgKey = 'reels-' + currentClientId;
@@ -346,12 +378,12 @@ function renderReelsBody() {
         : ''
     }
     ${rows.length ? `<div class="card" style="margin-bottom:14px"><div class="sectionHead"><h3 style="font-size:13px">Reach per post</h3><div class="mini">latest ${recent.length}, oldest on the left</div></div>${chart}</div>` : ''}
-    <div class="tableWrap"><table class="table"><thead><tr><th>Post</th><th>Posted</th><th>Reach</th><th>Plays</th><th>Likes</th><th>Comments</th><th>Shares</th><th>Saves</th><th>Interactions</th><th>Eng. rate</th><th>Edit</th></tr></thead><tbody>
+    <div class="tableWrap"><table class="table"><thead><tr><th>Preview</th><th>Post</th><th>Posted</th><th>Reach</th><th>Plays</th><th>Likes</th><th>Comments</th><th>Shares</th><th>Saves</th><th>Interactions</th><th>Eng. rate</th><th>Edit</th></tr></thead><tbody>
       ${
         pg.rows
           .map(
             (r) =>
-              `<tr><td><b>${esc(r.title)}</b> ${r.post_type ? `<span class="badge gray">${esc(r.post_type)}</span> ` : ''}${r.source === 'instagram' ? '<span class="badge blue">Synced</span>' : '<span class="badge gray">Manual</span>'}${
+              `<tr><td>${thumbHtml(r)}</td><td><b>${esc(r.title)}</b> ${r.post_type ? `<span class="badge gray">${esc(r.post_type)}</span> ` : ''}${r.source === 'instagram' ? '<span class="badge blue">Synced</span>' : '<span class="badge gray">Manual</span>'}${
                 r.reel_url ? ` <a href="${esc(r.reel_url)}" target="_blank" rel="noopener" class="mini">view</a>` : ''
               }</td><td>${esc(
                 r.posted_at
@@ -359,12 +391,15 @@ function renderReelsBody() {
                 r.id
               }">Edit</button> <button class="btn danger" data-del-reel="${r.id}">Delete</button></td></tr>`
           )
-          .join('') || '<tr><td colspan="11" class="empty">No posts yet. Connect Instagram and press Sync Now.</td></tr>'
+          .join('') || '<tr><td colspan="12" class="empty">No posts yet. Connect Instagram and press Sync Now.</td></tr>'
       }
     </tbody></table></div>${pg.html}`;
   bindPager($('mktBody'), pgKey, renderReelsBody);
 
   $('logReelBtn').onclick = () => openReelModal(currentClientId);
+  $('mktBody')
+    .querySelectorAll('[data-view-post]')
+    .forEach((b) => (b.onclick = () => openPostViewer(rows.find((r) => r.id === Number(b.dataset.viewPost)))));
   $('mktBody')
     .querySelectorAll('[data-edit-reel]')
     .forEach((b) => (b.onclick = () => openReelModal(currentClientId, rows.find((r) => r.id === Number(b.dataset.editReel)))));
