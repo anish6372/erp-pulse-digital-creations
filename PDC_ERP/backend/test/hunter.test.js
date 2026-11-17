@@ -92,3 +92,22 @@ test('market endpoint returns an estimate, neighbourhood landmarks and only this
   assert.ok(r.body.points.some((p) => p.name === 'Pinned Place' && p.lat === 12.9352));
   assert.ok(r.body.points.every((p) => p.name !== 'Bulk Alpha')); // a Mumbai lead is not on the Bangalore map
 });
+
+test('notes: the team logs what the AI got wrong, resolves and deletes it', async () => {
+  const lead = await t.call('POST', '/api/hunter/leads', { token: sales, body: { name: 'Note Dental', niche: 'dental', city: 'Pune' } });
+  const made = await t.call('POST', '/api/hunter/notes', { token: sales, body: { kind: 'Wrong data', lead_id: lead.body.lead.id, note: 'Phone number is wrong', ai_said: '99999', should_be: '88888' } });
+  assert.equal(made.status, 201);
+  assert.equal((await t.call('POST', '/api/hunter/notes', { token: sales, body: { note: '   ' } })).status, 400);
+  assert.equal((await t.call('POST', '/api/hunter/notes', { token: sales, body: { note: 'x', lead_id: 999999 } })).status, 400);
+  const open = await t.call('GET', '/api/hunter/notes?status=Open', { token: admin });
+  const row = open.body.rows.find((r) => r.id === made.body.id);
+  assert.equal(row.lead_name, 'Note Dental');
+  assert.equal(row.status, 'Open');
+  assert.equal((await t.call('GET', '/api/hunter/notes', { token: employee })).status, 403); // not Sales/Admin
+  assert.equal((await t.call('PUT', '/api/hunter/notes/' + made.body.id, { token: admin, body: { status: 'Resolved' } })).status, 200);
+  assert.equal((await t.call('PUT', '/api/hunter/notes/' + made.body.id, { token: admin, body: { status: 'Bogus' } })).status, 400);
+  const resolved = await t.call('GET', '/api/hunter/notes?status=Resolved', { token: admin });
+  assert.ok(resolved.body.rows.some((r) => r.id === made.body.id && r.resolved_by_name));
+  assert.equal((await t.call('DELETE', '/api/hunter/notes/' + made.body.id, { token: sales })).status, 200); // its author
+  assert.equal((await t.call('DELETE', '/api/hunter/notes/' + made.body.id, { token: admin })).status, 404);
+});

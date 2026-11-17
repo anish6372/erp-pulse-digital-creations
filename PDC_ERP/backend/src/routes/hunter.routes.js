@@ -553,4 +553,63 @@ router.post('/hunter/hunts/:id/run', requireHunterAccess, huntLimiter, async (re
   res.status(202).json({ job_id: await jobs.enqueue('hunt-run', { huntId: hunt.id, userId: req.user.id }) });
 });
 
+// --- Notes: the team's log of things the AI got wrong, tracked until someone fixes them ---
+const NOTE_KINDS = ['Wrong data', 'Bad AI draft', 'Wrong score', 'Wrong market estimate', 'Other'];
+const clip = (v, n) => String(v || '').trim().slice(0, n);
+
+router.get('/hunter/notes', requireHunterAccess, (req, res) => {
+  const where = [];
+  const args = [];
+  if (['Open', 'Resolved'].includes(req.query.status)) {
+    where.push('n.status=?');
+    args.push(req.query.status);
+  }
+  const rows = db
+    .prepare(
+      `SELECT n.*, l.name lead_name, u.name created_by_name, r.name resolved_by_name FROM hunter_notes n
+       LEFT JOIN hunter_leads l ON l.id=n.lead_id LEFT JOIN users u ON u.id=n.created_by LEFT JOIN users r ON r.id=n.resolved_by
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY (n.status='Open') DESC, n.created_at DESC`
+    )
+    .all(...args);
+  res.json({ rows, kinds: NOTE_KINDS });
+});
+
+router.post('/hunter/notes', requireHunterAccess, (req, res) => {
+  const u = req.user;
+  const b = req.body || {};
+  const note = clip(b.note, 2000);
+  if (!note) return res.status(400).json({ error: 'Write what the AI got wrong' });
+  const kind = NOTE_KINDS.includes(b.kind) ? b.kind : 'Other';
+  const leadId = b.lead_id ? Number(b.lead_id) : null;
+  if (leadId && !db.prepare('SELECT id FROM hunter_leads WHERE id=?').get(leadId)) return res.status(400).json({ error: 'That lead no longer exists' });
+  const r = db
+    .prepare('INSERT INTO hunter_notes(lead_id,kind,note,ai_said,should_be,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run(leadId, kind, note, clip(b.ai_said, 2000), clip(b.should_be, 2000), 'Open', u.id, now());
+  audit(u, 'CREATE', 'hunter_note', r.lastInsertRowid, kind);
+  res.status(201).json({ id: r.lastInsertRowid });
+});
+
+router.put('/hunter/notes/:id', requireHunterAccess, (req, res) => {
+  const u = req.user;
+  const id = Number(req.params.id);
+  const n = db.prepare('SELECT * FROM hunter_notes WHERE id=?').get(id);
+  if (!n) return res.status(404).json({ error: 'Not found' });
+  const st = req.body?.status;
+  if (!['Open', 'Resolved'].includes(st)) return res.status(400).json({ error: 'Status must be Open or Resolved' });
+  db.prepare('UPDATE hunter_notes SET status=?, resolved_by=?, resolved_at=? WHERE id=?').run(st, st === 'Resolved' ? u.id : null, st === 'Resolved' ? now() : null, id);
+  audit(u, 'UPDATE', 'hunter_note', id, st);
+  res.json({ ok: true });
+});
+
+router.delete('/hunter/notes/:id', requireHunterAccess, (req, res) => {
+  const u = req.user;
+  const id = Number(req.params.id);
+  const n = db.prepare('SELECT * FROM hunter_notes WHERE id=?').get(id);
+  if (!n) return res.status(404).json({ error: 'Not found' });
+  if (u.role !== 'Admin' && n.created_by !== u.id) return res.status(403).json({ error: 'Only the person who wrote a note, or an Admin, can delete it' });
+  db.prepare('DELETE FROM hunter_notes WHERE id=?').run(id);
+  audit(u, 'DELETE', 'hunter_note', id, n.kind);
+  res.json({ ok: true });
+});
+
 module.exports = router;

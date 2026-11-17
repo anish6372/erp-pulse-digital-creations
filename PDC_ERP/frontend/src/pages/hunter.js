@@ -74,7 +74,7 @@ function paintShell() {
     ${tabBtn('dashboard', 'Dashboard')}${tabBtn('market', 'Market')}${tabBtn('leads', 'Leads')}${tabBtn('approvals', 'Approvals')}${tabBtn('tasks', 'Tasks')}${tabBtn('add', 'Add leads')}${tabBtn(
     'hunts',
     'Hunts'
-  )}${isAdmin() ? tabBtn('compliance', 'Compliance') : ''}
+  )}${tabBtn('notes', 'Notes')}${isAdmin() ? tabBtn('compliance', 'Compliance') : ''}
   </div>
   <div id="hunterBody"></div>`;
   $('page-hunter')
@@ -105,6 +105,7 @@ async function loadTab() {
     else if (tab === 'tasks') await paintTouches('approved', 'tasks');
     else if (tab === 'add') paintAdd();
     else if (tab === 'hunts') await paintHunts();
+    else if (tab === 'notes') await paintNotes();
     else if (tab === 'compliance') await paintCompliance();
   } catch (e) {
     body.innerHTML = `<div class="card"><div class="err">Could not load this tab: ${esc(e.message)}</div></div>`;
@@ -784,6 +785,97 @@ async function logOutcome(id, outcome) {
 }
 
 // ---------- hunts (automatic discovery) ----------
+
+// ---------- notes: what the AI got wrong, tracked until fixed ----------
+
+let notesFilter = 'Open';
+
+async function paintNotes() {
+  const [d, leads] = await Promise.all([api('/api/hunter/notes'), api('/api/hunter/leads').catch(() => ({ rows: [] }))]);
+  renderNotes(d.rows || [], d.kinds || [], leads.rows || []);
+}
+
+function renderNotes(all, kinds, leads) {
+  const openCount = all.filter((n) => n.status === 'Open').length;
+  const shown = all.filter((n) => notesFilter === 'All' || n.status === notesFilter);
+  const pg = paginate('hunter-notes', shown);
+  $('hunterBody').innerHTML = `<div class="card" style="margin-bottom:14px">
+    <h3 style="margin-bottom:6px">Report something the AI got wrong</h3>
+    <div class="mini" style="margin-bottom:10px">Wrong details, a draft that missed the mark, a score that feels off - note it here so it can be fixed. Say what the AI said and what is actually right.</div>
+    <form id="noteForm"><div class="fgrid">
+      <div class="field"><label>What went wrong</label><select id="nkKind">${kinds.map((k) => `<option>${esc(k)}</option>`).join('')}</select></div>
+      <div class="field"><label>Lead (optional)</label><select id="nkLead"><option value="">Not about one lead</option>${leads.map((l) => `<option value="${l.id}">${esc(l.name)}${l.city ? ' - ' + esc(l.city) : ''}</option>`).join('')}</select></div>
+      <div class="field full"><label>Note</label><textarea id="nkNote" required maxlength="2000" placeholder="e.g. The draft called the clinic a salon"></textarea></div>
+      <div class="field"><label>What the AI said (optional)</label><input id="nkSaid" maxlength="2000"></div>
+      <div class="field"><label>What is actually right (optional)</label><input id="nkRight" maxlength="2000"></div>
+    </div><button class="btn" style="margin-top:10px">${icon('plus')}<span>Add note</span></button></form>
+  </div>
+  <div class="card">
+    <div class="sectionHead"><div><h3>Notes</h3><div class="mini">${openCount} open</div></div>
+      <div class="pnl">${['Open', 'Resolved', 'All'].map((f) => `<button class="btn ${notesFilter === f ? '' : 'alt'}" data-note-filter="${f}">${f}</button>`).join('')}</div></div>
+    ${
+      shown.length
+        ? `<div class="tableWrap"><table class="table"><thead><tr><th>When</th><th>Issue</th><th>Details</th><th>Status</th><th></th></tr></thead><tbody>${pg.rows
+            .map(
+              (n) => `<tr><td class="mini">${new Date(n.created_at).toLocaleDateString('en-IN')}<div>${esc(n.created_by_name || '')}</div></td>
+              <td><span class="badge gray">${esc(n.kind)}</span>${n.lead_name ? `<div class="mini">${esc(n.lead_name)}</div>` : ''}</td>
+              <td class="wrap">${esc(n.note)}${n.ai_said ? `<div class="mini"><b>AI said:</b> ${esc(n.ai_said)}</div>` : ''}${n.should_be ? `<div class="mini"><b>Should be:</b> ${esc(n.should_be)}</div>` : ''}</td>
+              <td><span class="badge ${n.status === 'Open' ? 'yellow' : 'green'}">${esc(n.status)}</span>${n.resolved_by_name ? `<div class="mini">by ${esc(n.resolved_by_name)}</div>` : ''}</td>
+              <td class="pnl"><button class="btn alt" style="padding:3px 9px;font-size:11px" data-note-toggle="${n.id}|${n.status === 'Open' ? 'Resolved' : 'Open'}">${n.status === 'Open' ? 'Mark fixed' : 'Reopen'}</button><button class="btn danger" style="padding:3px 9px;font-size:11px" data-note-del="${n.id}">${icon('trash')}</button></td></tr>`
+            )
+            .join('')}</tbody></table></div>${pg.html}`
+        : `<div class="empty">${notesFilter === 'Open' ? 'No open notes. Nothing the AI got wrong is waiting to be fixed.' : 'No notes here yet.'}</div>`
+    }
+  </div>`;
+  bindPager($('hunterBody'), 'hunter-notes', () => renderNotes(all, kinds, leads));
+  $('hunterBody')
+    .querySelectorAll('[data-note-filter]')
+    .forEach((b) => (b.onclick = () => ((notesFilter = b.dataset.noteFilter), resetPage('hunter-notes'), renderNotes(all, kinds, leads))));
+  $('noteForm').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('/api/hunter/notes', {
+        method: 'POST',
+        body: JSON.stringify({ kind: $('nkKind').value, lead_id: $('nkLead').value || null, note: $('nkNote').value, ai_said: $('nkSaid').value, should_be: $('nkRight').value }),
+      });
+      toast('Note added');
+      notesFilter = 'Open';
+      resetPage('hunter-notes');
+      await paintNotes();
+    } catch (err) {
+      toast(err.message || 'Could not add the note');
+    }
+  };
+  $('hunterBody')
+    .querySelectorAll('[data-note-toggle]')
+    .forEach(
+      (b) =>
+        (b.onclick = async () => {
+          const [id, st] = b.dataset.noteToggle.split('|');
+          try {
+            await api('/api/hunter/notes/' + id, { method: 'PUT', body: JSON.stringify({ status: st }) });
+            await paintNotes();
+          } catch (err) {
+            toast(err.message || 'Could not update the note');
+          }
+        })
+    );
+  $('hunterBody')
+    .querySelectorAll('[data-note-del]')
+    .forEach(
+      (b) =>
+        (b.onclick = async () => {
+          if (!(await confirmDialog('Delete this note?', { title: 'Delete note', confirmText: 'Delete' }))) return;
+          try {
+            await api('/api/hunter/notes/' + b.dataset.noteDel, { method: 'DELETE' });
+            toast('Note deleted');
+            await paintNotes();
+          } catch (err) {
+            toast(err.message || 'Could not delete the note');
+          }
+        })
+    );
+}
 
 async function paintHunts() {
   const d = await api('/api/hunter/hunts');

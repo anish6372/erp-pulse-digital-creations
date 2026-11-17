@@ -346,6 +346,23 @@ try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_marketing_reels_ig_media ON
 try { db.exec("ALTER TABLE marketing_audience_geo ADD COLUMN source TEXT DEFAULT 'manual'"); } catch(e) {}
 // Post type (Reel / Image / Video / Carousel) now that every post is synced, not only reels.
 try { db.exec("ALTER TABLE marketing_reels ADD COLUMN post_type TEXT DEFAULT 'Reel'"); } catch(e) {}
+// Client Hunter notes: where the team logs anything the AI got wrong (bad data, a poor draft, a wrong score),
+// with what it said and what it should have said, so mistakes get tracked until fixed.
+db.exec(`CREATE TABLE IF NOT EXISTS hunter_notes(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ lead_id INTEGER,
+ kind TEXT NOT NULL DEFAULT 'Other',
+ note TEXT NOT NULL,
+ ai_said TEXT DEFAULT '',
+ should_be TEXT DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'Open',
+ created_by INTEGER,
+ created_at TEXT NOT NULL,
+ resolved_by INTEGER,
+ resolved_at TEXT,
+ FOREIGN KEY(lead_id) REFERENCES hunter_leads(id) ON DELETE SET NULL,
+ FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+)`);
 // The post's own picture / video, so the Social page can show and play it (Instagram's links expire, so each sync refreshes them).
 try { db.exec("ALTER TABLE marketing_reels ADD COLUMN media_type TEXT DEFAULT ''"); } catch(e) {}
 try { db.exec("ALTER TABLE marketing_reels ADD COLUMN media_url TEXT DEFAULT ''"); } catch(e) {}
