@@ -13,7 +13,9 @@ const { generateHunterReport } = require('../utils/prospectAI');
 const { NICHES, CITIES, LOCALITIES, SIGNALS, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
 const { searchGoogleMaps, huntSignal } = require('../utils/apifyHunt');
 const { makeLimiter } = require('../utils/limiter');
-const { lookupInstagram } = require('../utils/igLookup');
+const { lookupInstagram, igHandle } = require('../utils/igLookup');
+// Store Instagram as a clean "@handle" whatever was pasted (URL, share link, plain name).
+const cleanIg = (v) => (igHandle(v) ? '@' + igHandle(v) : String(v || '').trim());
 const { cached, invalidate } = require('../utils/cache');
 const jobs = require('../utils/jobs');
 
@@ -72,6 +74,7 @@ async function insertScoredLead(b, actorId) {
   // business's own Instagram link so followers / last post can be looked up too.
   const siteSignals = b.website ? await analyzeWebsite(b.website) : null;
   if (!b.instagram && siteSignals && siteSignals.instagram_handle) b = { ...b, instagram: siteSignals.instagram_handle };
+  if (b.instagram) b = { ...b, instagram: cleanIg(b.instagram) };
   b = await fillInstagram(b);
   const auditResult = await auditAndScore({
     siteSignals,
@@ -301,7 +304,9 @@ async function refreshInstagramLeads(limit = 40) {
   let updated = 0;
   let failed = 0;
   for (const lead of rows) {
-    const ig = await lookupInstagram(lead.instagram);
+    const clean = cleanIg(lead.instagram);
+    if (clean !== lead.instagram) db.prepare('UPDATE hunter_leads SET instagram=? WHERE id=?').run(clean, lead.id);
+    const ig = await lookupInstagram(clean);
     if (!ig) { failed++; continue; }
     const merged = { ...lead, ig_followers: ig.followers ?? lead.ig_followers, ig_last_post_days: ig.last_post_days ?? lead.ig_last_post_days, ig_posting_frequency: ig.posting_frequency || lead.ig_posting_frequency };
     const scored = await auditAndScore({ ...merged, siteSignals: null, signal_at: lead.signal_at, signal_type: lead.signal_type });

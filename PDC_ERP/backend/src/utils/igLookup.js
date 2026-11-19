@@ -10,8 +10,10 @@ const GRAPH_BASE = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION 
 function igHandle(value) {
   let v = String(value || '').trim();
   if (!v) return '';
-  if (/instagram\.com/i.test(v)) v = v.replace(/[?#].*$/, '').replace(/\/+$/, '').split('/').pop();
-  v = v.replace(/^@/, '');
+  // Pasted share links carry tracking bits ("?igsh=...", "?knvt=...") - drop them.
+  v = v.replace(/[?#].*$/, '').replace(/\/+$/, '');
+  if (/instagram\.com/i.test(v)) v = v.split('/').pop();
+  v = v.replace(/^@/, '').trim();
   return /^[A-Za-z0-9._]{1,30}$/.test(v) ? v : '';
 }
 

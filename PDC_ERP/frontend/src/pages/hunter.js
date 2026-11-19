@@ -379,7 +379,8 @@ async function loadLeads() {
 // Instagram, Google and contact details shown on each row of the Leads list.
 function leadDetailCells(l) {
   const ig = (l.instagram || '').trim();
-  const handle = ig ? (ig.startsWith('http') ? ig.replace(/\/+$/, '').split('/').pop() : ig.replace(/^@/, '')) : '';
+  const bare = ig.replace(/[?#].*$/, '').replace(/\/+$/, '');
+  const handle = bare ? (/instagram\.com/i.test(bare) ? bare.split('/').pop() : bare.replace(/^@/, '')) : '';
   const igCell = handle ? `<a href="https://instagram.com/${encodeURIComponent(handle)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">@${esc(handle)}</a>` : '—';
   const followers = l.ig_followers != null ? Number(l.ig_followers).toLocaleString('en-IN') : '—';
   const d = l.ig_last_post_days;
