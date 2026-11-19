@@ -52,8 +52,8 @@ async function fillInstagram(b) {
   };
 }
 
-async function auditAndScore({ niche, city, website, ig_followers, ig_last_post_days, ig_posting_frequency, gmb_rating, gmb_reviews, email, instagram, linkedin, phone, signal_type, signal_at }) {
-  const siteSignals = website ? await analyzeWebsite(website) : null;
+async function auditAndScore({ siteSignals: given, niche, city, website, ig_followers, ig_last_post_days, ig_posting_frequency, gmb_rating, gmb_reviews, email, instagram, linkedin, phone, signal_type, signal_at }) {
+  const siteSignals = given !== undefined ? given : website ? await analyzeWebsite(website) : null;
   const channels = {
     website: websiteChannelScore(siteSignals),
     instagram: instagramChannelScore({ followers: ig_followers, lastPostDays: ig_last_post_days, postingFrequency: ig_posting_frequency }),
@@ -68,8 +68,13 @@ async function auditAndScore({ niche, city, website, ig_followers, ig_last_post_
 // that need those do them around this.
 async function insertScoredLead(b, actorId) {
   const name = String(b.name || '').trim();
+  // Read the website once: it scores the site and, when no handle was given, gives us the
+  // business's own Instagram link so followers / last post can be looked up too.
+  const siteSignals = b.website ? await analyzeWebsite(b.website) : null;
+  if (!b.instagram && siteSignals && siteSignals.instagram_handle) b = { ...b, instagram: siteSignals.instagram_handle };
   b = await fillInstagram(b);
   const auditResult = await auditAndScore({
+    siteSignals,
     niche: b.niche,
     city: b.city,
     website: b.website,
@@ -291,24 +296,34 @@ jobs.register('locate', locateJob);
 
 // Looks up Instagram followers / last post for leads that have a handle (up to 40 per click),
 // then re-scores them. Leads whose account is personal or private stay as they are.
-router.post('/hunter/leads/refresh-instagram', requireHunterAccess, async (req, res) => {
-  const rows = db.prepare("SELECT * FROM hunter_leads WHERE instagram<>'' ORDER BY (ig_followers IS NULL) DESC, updated_at ASC LIMIT 40").all();
+async function refreshInstagramLeads(limit = 40) {
+  const rows = db.prepare("SELECT * FROM hunter_leads WHERE instagram<>'' ORDER BY (ig_followers IS NULL) DESC, updated_at ASC LIMIT ?").all(limit);
   let updated = 0;
   let failed = 0;
   for (const lead of rows) {
     const ig = await lookupInstagram(lead.instagram);
     if (!ig) { failed++; continue; }
     const merged = { ...lead, ig_followers: ig.followers ?? lead.ig_followers, ig_last_post_days: ig.last_post_days ?? lead.ig_last_post_days, ig_posting_frequency: ig.posting_frequency || lead.ig_posting_frequency };
-    const scored = await auditAndScore({ ...merged, website: '', signal_at: lead.signal_at, signal_type: lead.signal_type });
+    const scored = await auditAndScore({ ...merged, siteSignals: null, signal_at: lead.signal_at, signal_type: lead.signal_type });
     const channels = { ...JSON.parse(lead.channels || '{}'), instagram: scored.channels.instagram };
     db.prepare('UPDATE hunter_leads SET ig_followers=?, ig_last_post_days=?, ig_posting_frequency=?, channels=?, updated_at=? WHERE id=?').run(
       merged.ig_followers ?? null, merged.ig_last_post_days ?? null, merged.ig_posting_frequency || '', JSON.stringify(channels), now(), lead.id);
     updated++;
   }
-  const connected = !!db.prepare('SELECT 1 FROM marketing_instagram_accounts LIMIT 1').get();
-  await invalidate('hunter:');
-  res.json({ checked: rows.length, updated, failed, connected });
+  if (rows.length) await invalidate('hunter:');
+  return { checked: rows.length, updated, failed, connected: !!db.prepare('SELECT 1 FROM marketing_instagram_accounts LIMIT 1').get() };
+}
+
+// Looks up Instagram followers / last post for leads that have a handle (up to 40 per click).
+// Free: it goes through Meta's official API with the account connected on the Social page.
+router.post('/hunter/leads/refresh-instagram', requireHunterAccess, async (req, res) => {
+  res.json(await refreshInstagramLeads(40));
 });
+
+// Keep the numbers current on their own: every 6 hours, refresh the 40 stalest leads.
+if (process.env.NODE_ENV !== 'test') {
+  setInterval(() => refreshInstagramLeads(40).catch(() => {}), 6 * 60 * 60 * 1000).unref();
+}
 
 router.post('/hunter/leads/locate', requireHunterAccess, async (req, res) => {
   const city = String(req.body?.city || '');

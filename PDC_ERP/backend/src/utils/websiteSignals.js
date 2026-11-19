@@ -26,6 +26,7 @@ async function analyzeWebsite(url) {
       has_mobile_viewport_tag: /<meta[^>]+name=["']viewport["']/i.test(html),
       has_meta_description: /<meta[^>]+name=["']description["']/i.test(html),
       links_instagram: /instagram\.com\//i.test(html),
+      instagram_handle: findInstagramHandle(html),
       links_facebook: /facebook\.com\//i.test(html),
       links_whatsapp: /wa\.me\/|api\.whatsapp\.com/i.test(html),
       mentions_online_ordering: /order\s*(now|online)|swiggy\.com|zomato\.com/i.test(lower),
@@ -40,4 +41,14 @@ async function analyzeWebsite(url) {
   }
 }
 
-module.exports = { analyzeWebsite };
+// The business's own Instagram link on its homepage, e.g. instagram.com/thedailygrind -> "@thedailygrind".
+function findInstagramHandle(html) {
+  const skip = new Set(['p', 'reel', 'reels', 'explore', 'accounts', 'stories', 'tv', 'about', 'developer', 'legal', 'instagram', 'sharer', 'share']);
+  for (const m of html.matchAll(/instagram\.com\/([A-Za-z0-9._]{1,30})/gi)) {
+    const h = m[1].replace(/\.+$/, '');
+    if (h && !skip.has(h.toLowerCase())) return '@' + h;
+  }
+  return null;
+}
+
+module.exports = { analyzeWebsite, findInstagramHandle };
