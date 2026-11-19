@@ -13,6 +13,7 @@ const { generateHunterReport } = require('../utils/prospectAI');
 const { NICHES, CITIES, LOCALITIES, SIGNALS, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
 const { searchGoogleMaps, huntSignal } = require('../utils/apifyHunt');
 const { makeLimiter } = require('../utils/limiter');
+const { lookupInstagram } = require('../utils/igLookup');
 const { cached, invalidate } = require('../utils/cache');
 const jobs = require('../utils/jobs');
 
@@ -36,6 +37,21 @@ function parseRow(r) {
   return { ...r, channels: JSON.parse(r.channels || '{}'), swot: JSON.parse(r.swot || '{}') };
 }
 
+const numOrNull = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+
+// Fill missing Instagram followers / last post / frequency from Instagram itself when we can.
+async function fillInstagram(b) {
+  if (!b.instagram || (numOrNull(b.ig_followers) != null && numOrNull(b.ig_last_post_days) != null)) return b;
+  const ig = await lookupInstagram(b.instagram);
+  if (!ig) return b;
+  return {
+    ...b,
+    ig_followers: numOrNull(b.ig_followers) ?? ig.followers,
+    ig_last_post_days: numOrNull(b.ig_last_post_days) ?? ig.last_post_days,
+    ig_posting_frequency: b.ig_posting_frequency || ig.posting_frequency,
+  };
+}
+
 async function auditAndScore({ niche, city, website, ig_followers, ig_last_post_days, ig_posting_frequency, gmb_rating, gmb_reviews, email, instagram, linkedin, phone, signal_type, signal_at }) {
   const siteSignals = website ? await analyzeWebsite(website) : null;
   const channels = {
@@ -52,6 +68,7 @@ async function auditAndScore({ niche, city, website, ig_followers, ig_last_post_
 // that need those do them around this.
 async function insertScoredLead(b, actorId) {
   const name = String(b.name || '').trim();
+  b = await fillInstagram(b);
   const auditResult = await auditAndScore({
     niche: b.niche,
     city: b.city,
@@ -91,8 +108,8 @@ async function insertScoredLead(b, actorId) {
       b.signal_at || ts,
       b.gmb_rating || null,
       b.gmb_reviews || null,
-      b.ig_followers || null,
-      b.ig_last_post_days || null,
+      numOrNull(b.ig_followers),
+      numOrNull(b.ig_last_post_days),
       b.ig_posting_frequency || '',
       JSON.stringify(auditResult.channels),
       auditResult.score,
@@ -271,6 +288,27 @@ async function locateJob({ city }, { progress }) {
   return { tried: rows.length, located, remaining };
 }
 jobs.register('locate', locateJob);
+
+// Looks up Instagram followers / last post for leads that have a handle (up to 40 per click),
+// then re-scores them. Leads whose account is personal or private stay as they are.
+router.post('/hunter/leads/refresh-instagram', requireHunterAccess, async (req, res) => {
+  const rows = db.prepare("SELECT * FROM hunter_leads WHERE instagram<>'' ORDER BY (ig_followers IS NULL) DESC, updated_at ASC LIMIT 40").all();
+  let updated = 0;
+  let failed = 0;
+  for (const lead of rows) {
+    const ig = await lookupInstagram(lead.instagram);
+    if (!ig) { failed++; continue; }
+    const merged = { ...lead, ig_followers: ig.followers ?? lead.ig_followers, ig_last_post_days: ig.last_post_days ?? lead.ig_last_post_days, ig_posting_frequency: ig.posting_frequency || lead.ig_posting_frequency };
+    const scored = await auditAndScore({ ...merged, website: '', signal_at: lead.signal_at, signal_type: lead.signal_type });
+    const channels = { ...JSON.parse(lead.channels || '{}'), instagram: scored.channels.instagram };
+    db.prepare('UPDATE hunter_leads SET ig_followers=?, ig_last_post_days=?, ig_posting_frequency=?, channels=?, updated_at=? WHERE id=?').run(
+      merged.ig_followers ?? null, merged.ig_last_post_days ?? null, merged.ig_posting_frequency || '', JSON.stringify(channels), now(), lead.id);
+    updated++;
+  }
+  const connected = !!db.prepare('SELECT 1 FROM marketing_instagram_accounts LIMIT 1').get();
+  await invalidate('hunter:');
+  res.json({ checked: rows.length, updated, failed, connected });
+});
 
 router.post('/hunter/leads/locate', requireHunterAccess, async (req, res) => {
   const city = String(req.body?.city || '');

@@ -71,7 +71,7 @@ function paintShell() {
   ${cfg.enabled === false ? '<div class="notice warn">AI drafting isn\'t configured (no Anthropic API key set). Leads can still be added and scored - you just won\'t get AI-drafted outreach messages.</div>' : ''}
   ${cfg.hunts_enabled === false ? '<div class="notice warn">Automatic lead discovery isn\'t configured (no Apify token set). Add leads by hand in the meantime - everything else still works.</div>' : ''}
   <div class="pnl" style="margin-bottom:14px;flex-wrap:wrap">
-    ${tabBtn('dashboard', 'Dashboard')}${tabBtn('hunts', 'Hunts')}${tabBtn('market', 'Market')}${tabBtn('add', 'Add leads')}${tabBtn('leads', 'Leads')}${tabBtn('notes', 'Notes')}${tabBtn('approvals', 'Approvals')}${tabBtn('tasks', 'Tasks')}${isAdmin() ? tabBtn('compliance', 'Compliance') : ''}
+    ${tabBtn('dashboard', 'Dashboard')}${tabBtn('market', 'Market')}${tabBtn('hunts', 'Hunts')}${tabBtn('add', 'Add leads')}${tabBtn('leads', 'Leads')}${tabBtn('approvals', 'Approvals')}${tabBtn('tasks', 'Tasks')}${tabBtn('notes', 'Notes')}${isAdmin() ? tabBtn('compliance', 'Compliance') : ''}
   </div>
   <div id="hunterBody"></div>`;
   $('page-hunter')
@@ -407,7 +407,8 @@ function renderLeadsList(allRows) {
           .map(([k, v]) => `<option value="${k}" ${filters.status === k ? 'selected' : ''}>${esc(v)}</option>`)
           .join('')}</select>
       </div>
-      <button class="btn" data-tab="add" id="hlAddBtn">${icon('plus')}<span>Add lead</span></button>
+      <div class="pnl"><button class="btn alt" id="hlIgBtn" title="Look up followers and last post from Instagram for leads with a handle">${icon('refresh')}<span>Refresh Instagram</span></button>
+      <button class="btn" data-tab="add" id="hlAddBtn">${icon('plus')}<span>Add lead</span></button></div>
     </div>
     <div class="tableWrap"><table class="table"><thead><tr><th>Score</th><th>Business</th><th>Niche</th><th>Location</th><th>Instagram</th><th>Followers</th><th>Last post</th><th>Google</th><th>Contact</th><th>Why now</th><th>Status</th></tr></thead><tbody>${
       rows.length
@@ -441,6 +442,20 @@ function renderLeadsList(allRows) {
     });
   });
   $('hlAddBtn').onclick = () => switchTab('add');
+  $('hlIgBtn').onclick = async () => {
+    const b = $('hlIgBtn');
+    b.disabled = true;
+    b.querySelector('span').textContent = 'Checking Instagram…';
+    try {
+      const r = await api('/api/hunter/leads/refresh-instagram', { method: 'POST' });
+      if (!r.connected) toast('Connect an Instagram account on the Social page first - it is used to look these up.');
+      else toast(`Updated ${r.updated} of ${r.checked} leads` + (r.failed ? ` · ${r.failed} couldn't be read (personal/private account or wrong handle)` : ''));
+      renderLeadsList(await loadLeads());
+    } catch (e) {
+      toast(e.message || 'Could not refresh Instagram');
+      b.disabled = false;
+    }
+  };
   $('page-hunter')
     .querySelectorAll('[data-open-lead]')
     .forEach((tr) => (tr.onclick = () => openLeadDetail(Number(tr.dataset.openLead))));
