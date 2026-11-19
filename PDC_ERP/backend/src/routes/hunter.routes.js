@@ -9,7 +9,7 @@ const { now } = require('../utils/datetime');
 const { audit } = require('../utils/audit');
 const { requireAuth, requireAdminOrDept } = require('../middleware/auth');
 const { analyzeWebsite } = require('../utils/websiteSignals');
-const { generateHunterReport } = require('../utils/prospectAI');
+const { generateHunterReport, generateProspectStrategy } = require('../utils/prospectAI');
 const { NICHES, CITIES, LOCALITIES, SIGNALS, computeScore, websiteChannelScore, instagramChannelScore, gmbChannelScore, estimateMarket } = require('../utils/hunterData');
 const { searchGoogleMaps, huntSignal } = require('../utils/apifyHunt');
 const { makeLimiter } = require('../utils/limiter');
@@ -152,9 +152,63 @@ router.post('/hunter/leads', requireHunterAccess, aiLimiter, async (req, res) =>
       /* lead is still saved and scored even if the AI draft step fails */
     }
   }
+  let prospectId = null;
+  try {
+    prospectId = await syncProspectReport(leadId, u.id);
+  } catch (e) {
+    /* the lead is saved either way */
+  }
   const row = db.prepare('SELECT * FROM hunter_leads WHERE id=?').get(leadId);
-  res.status(201).json({ lead: parseRow(row) });
+  res.status(201).json({ lead: parseRow(row), prospect_report_id: prospectId });
 });
+
+// Every lead added in Client Hunter also lands in the Prospect Analyzer as a report, built from the
+// same details. With AI configured it gets the analyzer's full SWOT + strategy write-up; without it
+// (or if that call fails) the report still appears, using the Hunter SWOT/pitch and signals.
+async function syncProspectReport(leadId, actorId) {
+  const lead = db.prepare('SELECT * FROM hunter_leads WHERE id=?').get(leadId);
+  if (!lead) return null;
+  const existing = db.prepare('SELECT id FROM prospect_reports WHERE hunter_lead_id=?').get(leadId);
+  if (existing) return existing.id;
+  const channels = JSON.parse(lead.channels || '{}');
+  const signals = {
+    source: 'Client Hunter',
+    niche: NICHES[lead.niche]?.label || lead.niche,
+    city: lead.city || '',
+    why_now: lead.signal_title || '',
+    google_rating: lead.gmb_rating,
+    google_reviews: lead.gmb_reviews,
+    score: lead.score,
+    tier: lead.tier,
+    channels,
+  };
+  const instagram = {
+    handle: lead.instagram || '',
+    followers: lead.ig_followers,
+    last_post: lead.ig_last_post_days != null ? `${lead.ig_last_post_days} days ago` : '',
+    posting_frequency: lead.ig_posting_frequency || '',
+    notes: lead.notes || '',
+  };
+  const hunterSwot = JSON.parse(lead.swot || '{}');
+  let swot = { strengths: hunterSwot.strengths || [], weaknesses: hunterSwot.weaknesses || [], opportunities: hunterSwot.opportunities || [], elevator_pitch: lead.elevator_pitch || '' };
+  let strategy = '';
+  if (process.env.ANTHROPIC_API_KEY) {
+    try {
+      const r = await generateProspectStrategy({ business_name: lead.name, website_url: lead.website, signals, instagram: instagram.handle ? instagram : null });
+      swot = { strengths: r.strengths || [], weaknesses: r.weaknesses || [], opportunities: r.opportunities || [], elevator_pitch: r.elevator_pitch || '' };
+      strategy = r.strategy || '';
+    } catch (e) {
+      /* keep the Hunter SWOT - the report still shows up */
+    }
+  }
+  const r = db
+    .prepare(
+      `INSERT INTO prospect_reports(business_name,website_url,instagram_handle,instagram_followers,instagram_last_post,instagram_posting_frequency,instagram_notes,website_signals,swot,strategy,created_by,created_at,hunter_lead_id)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    )
+    .run(lead.name, lead.website || '', instagram.handle, instagram.followers ?? null, instagram.last_post, instagram.posting_frequency, instagram.notes, JSON.stringify(signals), JSON.stringify(swot), strategy, actorId, now(), leadId);
+  return r.lastInsertRowid;
+}
 
 async function draftForLead(leadId, actor) {
   const lead = db.prepare('SELECT * FROM hunter_leads WHERE id=?').get(leadId);
@@ -217,6 +271,7 @@ async function bulkImportJob({ rows, userId }, { progress }) {
     if (process.env.ANTHROPIC_API_KEY) {
       try { await draftForLead(leadId, u); result.drafted++; } catch (e) { /* lead still saved */ }
     }
+    try { await syncProspectReport(leadId, u.id); } catch (e) { /* lead still saved */ }
   }
   await progress({ done: rows.length, total: rows.length, message: 'Done' });
   await invalidate('hunter:');

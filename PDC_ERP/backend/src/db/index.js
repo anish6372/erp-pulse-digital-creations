@@ -597,6 +597,8 @@ CREATE TABLE IF NOT EXISTS client_report_overrides(
 CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
 CREATE INDEX IF NOT EXISTS idx_content_client ON content_items(client_id, stage);
 `);
+// A Prospect Analyzer report made automatically from a Client Hunter lead points back at that lead.
+try { db.exec("ALTER TABLE prospect_reports ADD COLUMN hunter_lead_id INTEGER"); } catch(e) {}
 // Starter packages: editable placeholders — set your real prices on the Leads screen.
 if (db.prepare('SELECT COUNT(*) c FROM packages').get().c === 0) {
   const ins = db.prepare('INSERT INTO packages(name,reels_per_month,price,description) VALUES(?,?,?,?)');
