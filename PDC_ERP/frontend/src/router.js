@@ -23,7 +23,6 @@ import { renderMarketing } from './pages/marketing.js';
 import { renderLeads } from './pages/leads.js';
 import { renderContent } from './pages/content.js';
 import { renderClientReport } from './pages/clientReport.js';
-import { renderProspect } from './react/prospect/mount.tsx';
 import { renderHunter } from './pages/hunter.js';
 
 // The menu is two levels: a rail of sections, and the screens inside the chosen section.
@@ -51,7 +50,6 @@ const ADMIN_SECTIONS = [
     items: [
       ['leads', 'target', 'Leads'],
       ['hunter', 'radar', 'Client Hunter'],
-      ['prospect', 'search', 'Prospect Analyzer'],
       ['reports', 'report', 'Client reports'],
     ],
   },
@@ -140,7 +138,6 @@ const TITLES = (admin) => ({
   marketing: 'Social',
   leads: 'Leads',
   hunter: 'Client Hunter',
-  prospect: 'Prospect Analyzer',
   content: 'Content calendar',
   reports: 'Client report',
   settings: 'Settings',
@@ -320,7 +317,6 @@ export async function renderPage(p) {
   if (p === 'marketing') await renderMarketing();
   if (p === 'leads') await renderLeads();
   if (p === 'hunter') await renderHunter();
-  if (p === 'prospect') await renderProspect();
   if (p === 'content') await renderContent();
   if (p === 'reports') await renderClientReport();
   if (p === 'settings') renderSettings();

@@ -2,7 +2,7 @@
 export const ADMIN_SECTIONS = [
   { id: 'home', label: 'Home', icon: 'dashboard', items: [['dashboard', 'dashboard', 'Dashboard']] },
   { id: 'workspace', label: 'Workspace', icon: 'briefcase', items: [['marketing', 'at', 'Social'], ['content', 'film', 'Content'], ['tasks', 'tasks', 'Tasks'], ['work', 'work', 'Daily Work'], ['deliverables', 'deliverables', 'Deliverables'], ['meetings', 'meetings', 'Meetings'], ['chat', 'chat', 'Chat']] },
-  { id: 'growth', label: 'Growth', icon: 'marketing', items: [['leads', 'target', 'Leads'], ['hunter', 'radar', 'Client Hunter'], ['prospect', 'search', 'Prospect Analyzer'], ['reports', 'report', 'Client reports']] },
+  { id: 'growth', label: 'Growth', icon: 'marketing', items: [['leads', 'target', 'Leads'], ['hunter', 'radar', 'Client Hunter'], ['reports', 'report', 'Client reports']] },
   { id: 'company', label: 'Company', icon: 'building', items: [['team', 'team', 'Team'], ['clients', 'clients', 'Clients'], ['hrms', 'hrms', 'HRMS'], ['onboarding', 'onboarding', 'Onboarding'], ['ats', 'ats', 'ATS'], ['payroll', 'payroll', 'Payroll']] },
   { id: 'me', label: 'Me', icon: 'user', items: [['attendance', 'attendance', 'Attendance'], ['leaves', 'leaves', 'Leave Requests']] },
   { id: 'settings', label: 'Settings', icon: 'settings', items: [['settings', 'settings', 'Settings']] },
@@ -44,7 +44,6 @@ export const TITLES = (admin) => ({
   marketing: 'Social',
   leads: 'Leads',
   hunter: 'Client Hunter',
-  prospect: 'Prospect Analyzer',
   content: 'Content calendar',
   reports: 'Client report',
   settings: 'Settings',

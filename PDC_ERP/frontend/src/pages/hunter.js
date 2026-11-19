@@ -71,10 +71,7 @@ function paintShell() {
   ${cfg.enabled === false ? '<div class="notice warn">AI drafting isn\'t configured (no Anthropic API key set). Leads can still be added and scored - you just won\'t get AI-drafted outreach messages.</div>' : ''}
   ${cfg.hunts_enabled === false ? '<div class="notice warn">Automatic lead discovery isn\'t configured (no Apify token set). Add leads by hand in the meantime - everything else still works.</div>' : ''}
   <div class="pnl" style="margin-bottom:14px;flex-wrap:wrap">
-    ${tabBtn('dashboard', 'Dashboard')}${tabBtn('market', 'Market')}${tabBtn('leads', 'Leads')}${tabBtn('approvals', 'Approvals')}${tabBtn('tasks', 'Tasks')}${tabBtn('add', 'Add leads')}${tabBtn(
-    'hunts',
-    'Hunts'
-  )}${tabBtn('notes', 'Notes')}${isAdmin() ? tabBtn('compliance', 'Compliance') : ''}
+    ${tabBtn('dashboard', 'Dashboard')}${tabBtn('hunts', 'Hunts')}${tabBtn('market', 'Market')}${tabBtn('add', 'Add leads')}${tabBtn('leads', 'Leads')}${tabBtn('notes', 'Notes')}${tabBtn('approvals', 'Approvals')}${tabBtn('tasks', 'Tasks')}${isAdmin() ? tabBtn('compliance', 'Compliance') : ''}
   </div>
   <div id="hunterBody"></div>`;
   $('page-hunter')
@@ -379,6 +376,20 @@ async function loadLeads() {
   return d.rows || [];
 }
 
+// Instagram, Google and contact details shown on each row of the Leads list.
+function leadDetailCells(l) {
+  const ig = (l.instagram || '').trim();
+  const handle = ig ? (ig.startsWith('http') ? ig.replace(/\/+$/, '').split('/').pop() : ig.replace(/^@/, '')) : '';
+  const igCell = handle ? `<a href="https://instagram.com/${encodeURIComponent(handle)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">@${esc(handle)}</a>` : '—';
+  const followers = l.ig_followers != null ? Number(l.ig_followers).toLocaleString('en-IN') : '—';
+  const d = l.ig_last_post_days;
+  const lastPost = d == null ? '—' : d === 0 ? 'Today' : `${d} day${d === 1 ? '' : 's'} ago${l.ig_posting_frequency ? ` · ${esc(l.ig_posting_frequency)}` : ''}`;
+  const google = l.gmb_rating != null || l.gmb_reviews != null ? `${l.gmb_rating != null ? '★ ' + Number(l.gmb_rating).toFixed(1) : ''}${l.gmb_reviews != null ? ` (${Number(l.gmb_reviews).toLocaleString('en-IN')} reviews)` : ''}` : '—';
+  const site = l.website ? `<a href="${esc(/^https?:/i.test(l.website) ? l.website : 'https://' + l.website)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Website</a>` : '';
+  const contact = [esc(l.contact_name || ''), esc(l.phone || ''), esc(l.email || ''), site].filter(Boolean).join('<br>') || '—';
+  return `<td class="mini">${igCell}</td><td class="mini">${followers}</td><td class="mini">${lastPost}</td><td class="mini">${google}</td><td class="mini">${contact}</td>`;
+}
+
 function renderLeadsList(allRows) {
   const pg = paginate('hunter-leads', allRows);
   const rows = pg.rows;
@@ -398,17 +409,17 @@ function renderLeadsList(allRows) {
       </div>
       <button class="btn" data-tab="add" id="hlAddBtn">${icon('plus')}<span>Add lead</span></button>
     </div>
-    <div class="tableWrap"><table class="table"><thead><tr><th>Score</th><th>Business</th><th>Niche</th><th>Location</th><th>Why now</th><th>Status</th></tr></thead><tbody>${
+    <div class="tableWrap"><table class="table"><thead><tr><th>Score</th><th>Business</th><th>Niche</th><th>Location</th><th>Instagram</th><th>Followers</th><th>Last post</th><th>Google</th><th>Contact</th><th>Why now</th><th>Status</th></tr></thead><tbody>${
       rows.length
         ? rows
             .map(
               (l) =>
                 `<tr class="click" data-open-lead="${l.id}"><td><b>${l.score}</b> <span class="badge ${TIER_CLASS[l.tier] || 'gray'}">${esc(l.tier)}</span></td><td>${esc(l.name)}</td><td class="mini">${esc(
                   NICHES[l.niche] || l.niche
-                )}</td><td class="mini">${esc(l.city || '—')}</td><td class="mini">${esc(l.signal_title || '—')}</td><td><span class="badge gray">${esc(STATUS_LABEL[l.status] || l.status)}</span></td></tr>`
+                )}</td><td class="mini">${esc(l.city || '—')}</td>${leadDetailCells(l)}<td class="mini">${esc(l.signal_title || '—')}</td><td><span class="badge gray">${esc(STATUS_LABEL[l.status] || l.status)}</span></td></tr>`
             )
             .join('')
-        : '<tr><td colspan="6" class="empty">No leads match these filters.</td></tr>'
+        : '<tr><td colspan="11" class="empty">No leads match these filters.</td></tr>'
     }</tbody></table></div>${pg.html}
   </div>`;
   bindPager($('hunterBody'), 'hunter-leads', () => renderLeadsList(allRows));

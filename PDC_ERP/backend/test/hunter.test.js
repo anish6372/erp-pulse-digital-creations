@@ -112,15 +112,3 @@ test('notes: the team logs what the AI got wrong, resolves and deletes it', asyn
   assert.equal((await t.call('DELETE', '/api/hunter/notes/' + made.body.id, { token: admin })).status, 404);
 });
 
-test('a lead added in Client Hunter also appears in the Prospect Analyzer', async () => {
-  const r = await t.call('POST', '/api/hunter/leads', { token: sales, body: { name: 'Prospect Cafe', niche: 'cafe_restaurant', city: 'Pune', instagram: '@prospectcafe', ig_followers: 420 } });
-  assert.equal(r.status, 201);
-  assert.ok(r.body.prospect_report_id);
-  const list = await t.call('GET', '/api/prospect', { token: admin });
-  const rep = list.body.rows.find((x) => x.id === r.body.prospect_report_id);
-  assert.equal(rep.business_name, 'Prospect Cafe');
-  assert.equal(rep.hunter_lead_id, r.body.lead.id);
-  assert.equal(rep.instagram_handle, '@prospectcafe');
-  assert.equal(rep.instagram_followers, 420);
-  assert.equal(JSON.parse(rep.website_signals).source, 'Client Hunter');
-});
