@@ -23,7 +23,7 @@ import { renderMarketing } from './pages/marketing.js';
 import { renderLeads } from './pages/leads.js';
 import { renderContent } from './pages/content.js';
 import { renderClientReport } from './pages/clientReport.js';
-import { renderProspect } from './pages/prospect.js';
+import { renderProspect } from './react/prospect/mount.tsx';
 import { renderHunter } from './pages/hunter.js';
 
 // The menu is two levels: a rail of sections, and the screens inside the chosen section.
