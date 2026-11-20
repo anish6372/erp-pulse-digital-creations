@@ -4,9 +4,18 @@ import { api } from '../lib/api.js';
 import { state } from '../lib/state.js';
 import { $, esc, initials, toast, openModal, closeModal, dateNow, kpi, animateCountUps, confirmDialog } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
+import { paginate, bindPager, resetPage } from '../lib/paginate.js';
 
 let data = { leads: [], packages: [], stages: [], types: [] };
-let filter = { q: '', type: '' };
+let filter = { q: '', type: '', stage: '', sort: 'follow' };
+let view = (() => { try { return localStorage.getItem('leadsView') || 'board'; } catch (e) { return 'board'; } })();
+
+const SORTS = {
+  follow: ['Follow-up date', (a, b) => (a.next_follow_up || '9999').localeCompare(b.next_follow_up || '9999')],
+  newest: ['Newest first', (a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))],
+  value: ['Highest value', (a, b) => (b.monthly_value || 0) - (a.monthly_value || 0)],
+  name: ['Name A-Z', (a, b) => String(a.business_name).localeCompare(String(b.business_name))],
+};
 
 const money = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 const monthOf = (iso) => String(iso || '').slice(0, 7);
@@ -36,6 +45,7 @@ function visibleLeads() {
   return data.leads.filter(
     (l) =>
       (!filter.type || l.business_type === filter.type) &&
+      (view !== 'list' || !filter.stage || l.stage === filter.stage) &&
       (!q || [l.business_name, l.contact_name, l.area, l.phone].some((v) => String(v || '').toLowerCase().includes(q)))
   );
 }
@@ -65,10 +75,13 @@ function paint() {
         <div class="pnl">
           <input id="leadSearch" class="ig-client" placeholder="Search name, area, phone" value="${esc(filter.q)}" style="min-width:230px">
           <select id="leadType" class="ig-client"><option value="">All types</option>${data.types.map((x) => `<option ${filter.type === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+          ${view === 'list' ? `<select id="leadStage" class="ig-client"><option value="">All stages</option>${data.stages.map((x) => `<option ${filter.stage === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+          <select id="leadSort" class="ig-client">${Object.entries(SORTS).map(([k, [label]]) => `<option value="${k}" ${filter.sort === k ? 'selected' : ''}>Sort: ${label}</option>`).join('')}</select>` : ''}
+          <div class="pnl" style="gap:0"><button class="btn ${view === 'board' ? '' : 'alt'}" data-view="board" style="border-radius:8px 0 0 8px">Board</button><button class="btn ${view === 'list' ? '' : 'alt'}" data-view="list" style="border-radius:0 8px 8px 0">List</button></div>
         </div>
         <div class="pnl"><button class="btn alt" id="pkgBtn">Packages</button><button class="btn" id="addLeadBtn">${icon('plus')}<span>Add lead</span></button></div>
       </div>
-      <div class="lead-board">${data.stages
+      ${view === 'list' ? listHtml(leads) : `<div class="lead-board">${data.stages
         .map((stage) => {
           const col = leads.filter((l) => l.stage === stage);
           const val = col.reduce((a, l) => a + l.monthly_value, 0);
@@ -86,12 +99,13 @@ function paint() {
               .join('') || '<div class="empty" style="padding:14px 6px">Drop a lead here</div>'
           }</div>`;
         })
-        .join('')}</div>
+        .join('')}</div>`}
     </div>`;
   animateCountUps($('page-leads'));
 
   $('leadSearch').oninput = (e) => {
     filter.q = e.target.value;
+    resetPage('leads');
     paint();
     const el = $('leadSearch');
     el.focus();
@@ -99,8 +113,19 @@ function paint() {
   };
   $('leadType').onchange = (e) => {
     filter.type = e.target.value;
+    resetPage('leads');
     paint();
   };
+  $('page-leads').querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => {
+    view = b.dataset.view;
+    try { localStorage.setItem('leadsView', view); } catch (e) { /* ignore */ }
+    resetPage('leads');
+    paint();
+  }));
+  if ($('leadStage')) $('leadStage').onchange = (e) => { filter.stage = e.target.value; resetPage('leads'); paint(); };
+  if ($('leadSort')) $('leadSort').onchange = (e) => { filter.sort = e.target.value; resetPage('leads'); paint(); };
+  $('page-leads').querySelectorAll('[data-open-lead]').forEach((r) => (r.onclick = () => openLeadModal(Number(r.dataset.openLead))));
+  if (view === 'list') bindPager($('page-leads'), 'leads', paint);
   $('addLeadBtn').onclick = () => openLeadModal();
   $('pkgBtn').onclick = openPackages;
 
@@ -128,6 +153,21 @@ function paint() {
         moveLead(Number(e.dataTransfer.getData('text/plain')), col.dataset.stage);
       };
     });
+}
+
+// List view: every lead in one sortable table, 20 per page - quicker than scrolling the board.
+function listHtml(leads) {
+  const sorted = [...leads].sort(SORTS[filter.sort]?.[1] || SORTS.follow[1]);
+  const pg = paginate('leads', sorted);
+  return `<div class="tableWrap"><table class="table"><thead><tr><th>Business</th><th>Type</th><th>Stage</th><th>Area · Contact</th><th>Phone</th><th>Value</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>${
+    pg.rows
+      .map(
+        (l) => `<tr class="click" data-open-lead="${l.id}"><td><b>${esc(l.business_name)}</b></td><td><span class="badge blue">${esc(l.business_type)}</span></td><td><span class="badge gray">${esc(l.stage)}</span></td><td class="mini">${esc(
+          [l.area, l.contact_name].filter(Boolean).join(' · ') || '—'
+        )}</td><td class="mini">${esc(l.phone || '—')}</td><td>${l.monthly_value ? money(l.monthly_value) : '—'}</td><td>${followUpChip(l) || '<span class="mini">—</span>'}</td><td class="mini">${esc(l.owner_name || '—')}</td></tr>`
+      )
+      .join('') || '<tr><td colspan="8" class="empty">No leads match.</td></tr>'
+  }</tbody></table></div>${pg.html}`;
 }
 
 async function moveLead(id, stage) {

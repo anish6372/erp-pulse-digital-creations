@@ -481,6 +481,8 @@ body.app .sectionHead h3{font-size:21px;font-weight:500}
 .content-board{grid-auto-columns:minmax(216px,1fr)}
 .lead-col{background:transparent;border:0;border-top:1px solid var(--ink);padding:12px 0 0;min-height:240px}
 .lead-col.over{background:var(--card2)}
+.lead-col{max-height:70vh;overflow-y:auto;padding-right:4px}
+.lead-col .lead-colhead{position:sticky;top:0;z-index:1;background:var(--card);padding:4px 0}
 .lead-colhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:11px;letter-spacing:.12em;text-transform:uppercase}
 .lead-card{background:var(--card);border:1px solid var(--line);border-radius:5px;padding:12px 13px;margin-bottom:10px;cursor:grab;transition:border-color .15s var(--ease)}
 .lead-card:hover{border-color:var(--ink);transform:none;box-shadow:none}
