@@ -639,6 +639,10 @@ try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lat REAL'); } catch (e) {}
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lng REAL'); } catch (e) {}
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN geo_tried INTEGER DEFAULT 0'); } catch (e) {}
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN updated_by INTEGER'); } catch (e) {}
+// Market intel per lead: which agency they use today, their monthly budget, what they need.
+try { db.exec("ALTER TABLE hunter_leads ADD COLUMN current_agency TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec('ALTER TABLE hunter_leads ADD COLUMN budget INTEGER'); } catch (e) {}
+try { db.exec("ALTER TABLE hunter_leads ADD COLUMN services_needed TEXT DEFAULT ''"); } catch (e) {}
 // Competitor agencies in the market: who they work with and roughly what they earn (entered by hand).
 db.exec(`CREATE TABLE IF NOT EXISTS hunter_agencies(
  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -658,6 +662,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS hunter_agencies(
  created_at TEXT NOT NULL,
  updated_at TEXT NOT NULL
 )`);
+try { db.exec("ALTER TABLE hunter_agencies ADD COLUMN area TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE clients ADD COLUMN brand_voice TEXT DEFAULT ''"); } catch (e) {}
 db.exec(`
 CREATE TABLE IF NOT EXISTS ai_usage(

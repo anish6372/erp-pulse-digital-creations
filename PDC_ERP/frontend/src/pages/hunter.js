@@ -209,14 +209,15 @@ function paintAgencies() {
       ${kpi('Est. monthly revenue', inr(total), 'all tracked agencies')}
       ${kpi('Biggest', top ? top.name : '—', top ? inr(top.est_monthly_revenue) + ' / month' : '')}
     </div>
-    <div class="tableWrap"><table class="table"><thead><tr><th>Agency</th><th>Location</th><th>Niches</th><th>Clients (who they work with)</th><th>No. of clients</th><th>Avg fee / client</th><th>Est. revenue / month</th><th>Services</th><th>Updated</th><th></th></tr></thead><tbody>${
+    ${areaSummary()}
+    <div class="tableWrap"><table class="table"><thead><tr><th>Agency</th><th>Area</th><th>Niches</th><th>Clients (who they work with)</th><th>No. of clients</th><th>Avg fee / client</th><th>Est. revenue / month</th><th>Services</th><th>Updated</th><th></th></tr></thead><tbody>${
       agencies
         .map(
           (a) => `<tr><td><b>${esc(a.name)}</b>${
             a.website ? `<br><a class="mini" href="${esc(/^https?:/i.test(a.website) ? a.website : 'https://' + a.website)}" target="_blank" rel="noopener">Website</a>` : ''
-          }${a.instagram ? ` <span class="mini">${esc(a.instagram)}</span>` : ''}</td><td class="mini">${esc(a.city || '—')}</td><td class="mini">${esc(a.niches || '—')}</td><td class="mini" style="max-width:260px;white-space:normal">${esc(
+          }${a.instagram ? ` <span class="mini">${esc(a.instagram)}</span>` : ''}</td><td class="mini">${esc([a.area, a.city].filter(Boolean).join(', ') || '—')}</td><td class="mini">${esc(a.niches || '—')}</td><td class="mini" style="max-width:260px;white-space:normal">${esc(
             a.clients || '—'
-          )}</td><td>${a.client_count ?? '—'}</td><td>${inr(a.avg_fee)}</td><td><b>${inr(a.est_monthly_revenue)}</b></td><td class="mini" style="white-space:normal">${esc(
+          )}${a.lead_clients ? `<div class="mini" style="margin-top:4px;color:var(--ink)"><b>From your leads (${a.lead_clients}):</b> ${esc(a.lead_clients_names)}${a.lead_budget ? ` · budgets ₹${Number(a.lead_budget).toLocaleString('en-IN')}/mo` : ''}</div>` : ''}</td><td>${a.client_count ?? '—'}</td><td>${inr(a.avg_fee)}</td><td><b>${inr(a.est_monthly_revenue)}</b></td><td class="mini" style="white-space:normal">${esc(
             a.services || '—'
           )}</td><td class="mini">${esc(a.updated_by_name || '—')}<br>${esc(fmtWhen(a.updated_at))}</td><td style="white-space:nowrap"><button class="btn alt" data-ag-edit="${
             a.id
@@ -250,6 +251,23 @@ function paintAgencies() {
     );
 }
 
+// Agencies grouped by area: who operates where and how much they earn there.
+function areaSummary() {
+  if (!agencies.length) return '';
+  const groups = new Map();
+  for (const a of agencies) {
+    const k = [a.area, a.city].filter(Boolean).join(', ') || 'Area not set';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(a);
+  }
+  const rows = [...groups.entries()]
+    .map(([k, list]) => ({ k, list, rev: list.reduce((s, a) => s + (a.est_monthly_revenue || 0), 0), cl: list.reduce((s, a) => s + (a.client_count || 0), 0) }))
+    .sort((x, y) => y.rev - x.rev);
+  return `<h3 style="margin:6px 0 8px">Agencies by area</h3><div class="tableWrap" style="margin-bottom:14px"><table class="table"><thead><tr><th>Area</th><th>Agencies</th><th>Clients</th><th>Est. revenue / month</th></tr></thead><tbody>${rows
+    .map((g) => `<tr><td><b>${esc(g.k)}</b></td><td class="mini" style="white-space:normal">${g.list.map((a) => esc(a.name)).join(', ')}</td><td>${g.cl || '—'}</td><td><b>${inr(g.rev)}</b></td></tr>`)
+    .join('')}</tbody></table></div><h3 style="margin:6px 0 8px">All agencies</h3>`;
+}
+
 function openAgency(a = {}) {
   const f = (id, label, val, opts = {}) =>
     `<div class="field ${opts.full ? 'full' : ''}"><label>${label}</label>${
@@ -260,6 +278,7 @@ function openAgency(a = {}) {
     `<form id="agForm"><div class="fgrid">
       ${f('agName', 'Agency name *', a.name, { full: true })}
       <div class="field"><label>Location</label><select id="agCity">${CITIES.map((c) => `<option ${(a.city || marketParams.city) === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+      ${f('agArea', 'Area (e.g. JP Nagar, HSR Layout)', a.area)}
       ${f('agNiches', 'Niches they serve', a.niches)}
       ${f('agClients', 'Clients they work with (names, comma separated)', a.clients, { full: true, area: true })}
       ${f('agCount', 'Number of clients', a.client_count, { num: true })}
@@ -277,6 +296,7 @@ function openAgency(a = {}) {
     const body = {
       name: $('agName').value,
       city: $('agCity').value,
+      area: $('agArea').value,
       niches: $('agNiches').value,
       clients: $('agClients').value,
       client_count: $('agCount').value,
@@ -417,7 +437,7 @@ function radialSection(d, m) {
     .join('');
   const rows = near
     .slice(0, 12)
-    .map((p) => `<tr data-lead-id="${p.id}" style="cursor:pointer"><td><b>${esc(p.name)}</b><div class="mini">${esc(NICHES[p.niche] || p.niche)}</div></td><td>${esc(areaOf(p))}</td><td>${p.km.toFixed(1)} km</td><td>${p.gmb_reviews ?? '—'}</td><td>${p.score}</td><td><span class="badge ${TIER_CLASS[p.tier] || 'gray'}">${esc(p.tier)}</span></td></tr>`)
+    .map((p) => `<tr data-lead-id="${p.id}" style="cursor:pointer"><td><b>${esc(p.name)}</b><div class="mini">${esc(NICHES[p.niche] || p.niche)}</div></td><td>${esc(areaOf(p))}</td><td>${p.current_agency ? esc(p.current_agency) : '<span class="mini">—</span>'}</td><td>${p.budget != null ? '₹' + Number(p.budget).toLocaleString('en-IN') : '<span class="mini">—</span>'}</td><td class="mini" style="white-space:normal;max-width:200px">${esc(p.services_needed || '—')}</td><td>${p.km.toFixed(1)} km</td><td>${p.gmb_reviews ?? '—'}</td><td>${p.score}</td><td><span class="badge ${TIER_CLASS[p.tier] || 'gray'}">${esc(p.tier)}</span></td></tr>`)
     .join('');
   const note = [
     unpinned > 0 ? `${unpinned} lead(s) here aren't pinned because they have no coordinates (leads found by a Hunt are pinned automatically).` : '',
@@ -445,7 +465,7 @@ function radialSection(d, m) {
   </div>
   <div class="card" style="margin-bottom:12px">
     <h3 style="margin-bottom:8px">Who's here <span class="mini">your leads in ${esc(m.city || 'this city')}, highest score first</span></h3>
-    ${rows ? `<div class="tableWrap"><table class="table"><thead><tr><th>Business</th><th>Area</th><th>Distance</th><th>Reviews</th><th>Score</th><th>Tier</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">Nothing to list yet.</div>'}
+    ${rows ? `<div class="tableWrap"><table class="table"><thead><tr><th>Business</th><th>Area</th><th>Works with (agency)</th><th>Budget / month</th><th>Services needed</th><th>Distance</th><th>Reviews</th><th>Score</th><th>Tier</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">Nothing to list yet.</div>'}
   </div>`;
 }
 
@@ -603,9 +623,16 @@ async function openLeadDetail(id) {
     ${l.elevator_pitch ? `<div class="notice ok" style="margin-bottom:10px"><b>Opening line:</b> ${esc(l.elevator_pitch)}</div>` : ''}
     <div class="card soft" style="margin-bottom:10px">${chRow('Website', ch.website)}${chRow('Instagram', ch.instagram)}${chRow('Google Business', ch.gmb)}</div>
     <div class="grid g3" style="margin-bottom:10px">${col('Strengths', swot.strengths)}${col('Weaknesses', swot.weaknesses)}${col('Opportunities', swot.opportunities)}</div>
+    <div class="card soft" style="margin-bottom:10px"><div class="fgrid">
+      <div class="field"><label>Works with (current agency)</label><input id="hdAgency" list="hdAgencyList" value="${esc(l.current_agency || '')}" placeholder="None / unknown"><datalist id="hdAgencyList">${agencies
+        .map((a) => `<option value="${esc(a.name)}">`)
+        .join('')}</datalist></div>
+      <div class="field"><label>Budget / month (₹)</label><input id="hdBudget" type="number" min="0" value="${l.budget ?? ''}"></div>
+      <div class="field full"><label>Services needed</label><input id="hdNeeds" value="${esc(l.services_needed || '')}" placeholder="e.g. Reels, Google reviews, ads"></div>
+    </div></div>
     <div class="row" style="margin-bottom:10px">
       <select id="hdStatus">${Object.entries(STATUS_LABEL).map(([k, v]) => `<option value="${k}" ${l.status === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
-      <button class="btn alt" id="hdSave">Save status</button>
+      <button class="btn alt" id="hdSave">Save</button>
       ${cfg.enabled ? `<button class="btn alt" id="hdDraft">${icon('send')}<span>${d.touches.length ? 'Re-draft outreach' : 'Draft outreach'}</span></button>` : ''}
       <button class="btn danger" id="hdDelete">${icon('trash')}<span>Delete</span></button>
     </div>
@@ -626,8 +653,11 @@ async function openLeadDetail(id) {
   );
   $('hdSave').onclick = async () => {
     try {
-      await api('/api/hunter/leads/' + id, { method: 'PUT', body: JSON.stringify({ status: $('hdStatus').value }) });
-      toast('Status updated');
+      await api('/api/hunter/leads/' + id, {
+        method: 'PUT',
+        body: JSON.stringify({ status: $('hdStatus').value, current_agency: $('hdAgency').value, budget: $('hdBudget').value, services_needed: $('hdNeeds').value }),
+      });
+      toast('Lead updated');
       closeModal();
       await loadTab();
     } catch (e) {
@@ -693,6 +723,9 @@ function paintAdd() {
         <div class="field"><label>Google reviews</label><input id="al14" type="number" min="0"></div>
         <div class="field"><label>Instagram followers</label><input id="al15" type="number" min="0"></div>
         <div class="field"><label>Last Instagram post (days ago)</label><input id="al16" type="number" min="0"></div>
+        <div class="field"><label>Works with (current agency)</label><input id="alAgency" placeholder="None / unknown"></div>
+        <div class="field"><label>Budget / month (₹)</label><input id="alBudget" type="number" min="0"></div>
+        <div class="field full"><label>Services needed</label><input id="alNeeds" placeholder="e.g. Reels, Google reviews, ads"></div>
         <div class="field full"><label>Notes</label><textarea id="al17"></textarea></div>
       </div>
     </details>
@@ -826,6 +859,9 @@ async function submitAdd(e) {
     ig_followers: $('al15').value || null,
     ig_last_post_days: $('al16').value || null,
     notes: $('al17').value,
+    current_agency: $('alAgency').value,
+    budget: $('alBudget').value || null,
+    services_needed: $('alNeeds').value,
   };
   try {
     await api('/api/hunter/leads', { method: 'POST', body: JSON.stringify(body) });

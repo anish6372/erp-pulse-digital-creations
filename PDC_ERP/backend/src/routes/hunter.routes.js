@@ -131,7 +131,8 @@ async function insertScoredLead(b, actorId) {
       Number.isFinite(Number(b.lat)) && b.lat !== null && b.lat !== '' ? Number(b.lat) : null,
       Number.isFinite(Number(b.lng)) && b.lng !== null && b.lng !== '' ? Number(b.lng) : null
     );
-  db.prepare('UPDATE hunter_leads SET updated_by=? WHERE id=?').run(actorId, ins.lastInsertRowid);
+  db.prepare('UPDATE hunter_leads SET updated_by=?, current_agency=?, budget=?, services_needed=? WHERE id=?').run(
+    actorId, String(b.current_agency || '').trim(), numOrNull(b.budget), String(b.services_needed || '').trim(), ins.lastInsertRowid);
   return ins.lastInsertRowid;
 }
 
@@ -365,7 +366,11 @@ router.put('/hunter/leads/:id', requireHunterAccess, (req, res) => {
   const status = b.status || row.status;
   const owner_id = b.owner_id !== undefined ? b.owner_id : row.owner_id;
   const notes = b.notes !== undefined ? b.notes : row.notes;
-  db.prepare('UPDATE hunter_leads SET status=?,owner_id=?,notes=?,updated_at=?,updated_by=? WHERE id=?').run(status, owner_id, notes, now(), req.user.id, id);
+  const current_agency = b.current_agency !== undefined ? String(b.current_agency || '').trim() : row.current_agency || '';
+  const budget = b.budget !== undefined ? numOrNull(b.budget) : row.budget;
+  const services_needed = b.services_needed !== undefined ? String(b.services_needed || '').trim() : row.services_needed || '';
+  db.prepare('UPDATE hunter_leads SET status=?,owner_id=?,notes=?,current_agency=?,budget=?,services_needed=?,updated_at=?,updated_by=? WHERE id=?').run(
+    status, owner_id, notes, current_agency, budget, services_needed, now(), req.user.id, id);
   audit(req.user, 'UPDATE', 'hunter_lead', id, `status -> ${status}`);
   res.json({ ok: true });
 });
@@ -504,7 +509,7 @@ router.get('/hunter/market', requireHunterAccess, async (req, res) => {
   const { cities, niches } = await cached('hunter:breakdown', 15, leadBreakdown);
   const cityMeta = CITIES[req.query.city];
   const points = cityMeta
-    ? db.prepare('SELECT id,name,niche,score,tier,gmb_reviews,lat,lng FROM hunter_leads WHERE city=?').all(req.query.city)
+    ? db.prepare('SELECT id,name,niche,score,tier,gmb_reviews,lat,lng,current_agency,budget,services_needed FROM hunter_leads WHERE city=?').all(req.query.city)
     : [];
   res.json({ estimate, cities, niches, center: cityMeta ? { lat: cityMeta.lat, lng: cityMeta.lng } : null, points, localities: Object.entries(LOCALITIES[req.query.city] || {}).map(([name, [lat, lng]]) => ({ name, lat, lng })), unlocated: cityMeta ? db.prepare('SELECT COUNT(*) c FROM hunter_leads WHERE city=? AND lat IS NULL AND geo_tried=0').get(req.query.city).c : 0, note: 'Illustrative estimate from category benchmarks, not live scraped market data. City and niche breakdowns below are your real leads.' });
 });
@@ -673,7 +678,7 @@ router.delete('/hunter/notes/:id', requireHunterAccess, (req, res) => {
 });
 
 // ---------------- competitor agencies (Market tab) ----------------
-const AGENCY_FIELDS = ['name', 'city', 'niches', 'clients', 'client_count', 'avg_fee', 'est_monthly_revenue', 'services', 'website', 'instagram', 'notes'];
+const AGENCY_FIELDS = ['name', 'city', 'area', 'niches', 'clients', 'client_count', 'avg_fee', 'est_monthly_revenue', 'services', 'website', 'instagram', 'notes'];
 const AGENCY_NUM = new Set(['client_count', 'avg_fee', 'est_monthly_revenue']);
 function agencyValues(b, prev = {}) {
   const v = {};
@@ -693,6 +698,15 @@ router.get('/hunter/agencies', requireHunterAccess, (req, res) => {
        ${req.query.city ? 'WHERE a.city=?' : ''} ORDER BY COALESCE(a.est_monthly_revenue,0) DESC, a.name`
     )
     .all(...(req.query.city ? [req.query.city] : []));
+  // Link to your own leads: how many of them say they work with this agency, and their budgets.
+  const linked = db.prepare("SELECT LOWER(TRIM(current_agency)) k, COUNT(*) c, SUM(COALESCE(budget,0)) b, GROUP_CONCAT(name, ', ') names FROM hunter_leads WHERE TRIM(COALESCE(current_agency,''))<>'' GROUP BY k").all();
+  const byKey = new Map(linked.map((x) => [x.k, x]));
+  for (const r of rows) {
+    const l = byKey.get(r.name.trim().toLowerCase());
+    r.lead_clients = l ? l.c : 0;
+    r.lead_clients_names = l ? l.names : '';
+    r.lead_budget = l ? l.b : 0;
+  }
   res.json({ rows });
 });
 

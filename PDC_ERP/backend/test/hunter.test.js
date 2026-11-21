@@ -131,5 +131,14 @@ test('Client Hunter: leads show who updated them; competitor agencies can be tra
   rows = (await t.call('GET', '/api/hunter/agencies', { token: admin })).body.rows;
   assert.equal(rows.find((r) => r.id === a.body.id).est_monthly_revenue, 250000);
   assert.equal((await t.call('GET', '/api/hunter/agencies', { token: employee })).status, 403);
+  // a lead that works with this agency shows up under it, with its budget
+  const l2 = await t.call('POST', '/api/hunter/leads', { token: sales, body: { name: 'Rival Client Cafe', niche: 'cafe_restaurant', city: 'Pune', current_agency: 'rival media', budget: 30000, services_needed: 'Reels' } });
+  assert.equal(l2.status, 201);
+  const linked = (await t.call('GET', '/api/hunter/agencies?city=Pune', { token: sales })).body.rows.find((r) => r.id === a.body.id);
+  assert.equal(linked.lead_clients, 1);
+  assert.equal(linked.lead_budget, 30000);
+  const mk = await t.call('GET', '/api/hunter/market?niche=cafe_restaurant&city=Pune', { token: sales });
+  const pt = mk.body.points.find((p) => p.id === l2.body.lead.id);
+  assert.equal(pt.services_needed, 'Reels');
   assert.equal((await t.call('DELETE', '/api/hunter/agencies/' + a.body.id, { token: admin })).status, 200);
 });
