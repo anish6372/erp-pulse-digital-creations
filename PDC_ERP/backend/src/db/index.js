@@ -638,6 +638,26 @@ if (getSetting('salary_divisor', '') === '30') setSetting('salary_divisor', 'wor
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lat REAL'); } catch (e) {}
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lng REAL'); } catch (e) {}
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN geo_tried INTEGER DEFAULT 0'); } catch (e) {}
+try { db.exec('ALTER TABLE hunter_leads ADD COLUMN updated_by INTEGER'); } catch (e) {}
+// Competitor agencies in the market: who they work with and roughly what they earn (entered by hand).
+db.exec(`CREATE TABLE IF NOT EXISTS hunter_agencies(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ name TEXT NOT NULL,
+ city TEXT DEFAULT '',
+ niches TEXT DEFAULT '',
+ clients TEXT DEFAULT '',
+ client_count INTEGER,
+ avg_fee INTEGER,
+ est_monthly_revenue INTEGER,
+ services TEXT DEFAULT '',
+ website TEXT DEFAULT '',
+ instagram TEXT DEFAULT '',
+ notes TEXT DEFAULT '',
+ created_by INTEGER,
+ updated_by INTEGER,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+)`);
 try { db.exec("ALTER TABLE clients ADD COLUMN brand_voice TEXT DEFAULT ''"); } catch (e) {}
 db.exec(`
 CREATE TABLE IF NOT EXISTS ai_usage(

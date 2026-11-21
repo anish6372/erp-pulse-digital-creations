@@ -112,3 +112,24 @@ test('notes: the team logs what the AI got wrong, resolves and deletes it', asyn
   assert.equal((await t.call('DELETE', '/api/hunter/notes/' + made.body.id, { token: admin })).status, 404);
 });
 
+
+test('Client Hunter: leads show who updated them; competitor agencies can be tracked', async () => {
+  const add = await t.call('POST', '/api/hunter/leads', { token: sales, body: { name: 'Updated By Cafe', niche: 'cafe_restaurant', city: 'Pune' } });
+  assert.equal((await t.call('PUT', '/api/hunter/leads/' + add.body.lead.id, { token: admin, body: { status: 'outreach' } })).status, 200);
+  const list = await t.call('GET', '/api/hunter/leads?q=Updated By Cafe', { token: admin });
+  const row = list.body.rows.find((r) => r.id === add.body.lead.id);
+  assert.ok(row.updated_by_name && row.updated_at);
+
+  const a = await t.call('POST', '/api/hunter/agencies', { token: sales, body: { name: 'Rival Media', city: 'Pune', client_count: 8, avg_fee: 25000, clients: 'Cafe A, Cafe B' } });
+  assert.equal(a.status, 201);
+  assert.equal((await t.call('POST', '/api/hunter/agencies', { token: sales, body: { name: ' ' } })).status, 400);
+  let rows = (await t.call('GET', '/api/hunter/agencies?city=Pune', { token: sales })).body.rows;
+  const ag = rows.find((r) => r.id === a.body.id);
+  assert.equal(ag.est_monthly_revenue, 200000); // 8 clients x 25,000
+  assert.ok(ag.updated_by_name);
+  assert.equal((await t.call('PUT', '/api/hunter/agencies/' + a.body.id, { token: admin, body: { client_count: 10, est_monthly_revenue: null } })).status, 200);
+  rows = (await t.call('GET', '/api/hunter/agencies', { token: admin })).body.rows;
+  assert.equal(rows.find((r) => r.id === a.body.id).est_monthly_revenue, 250000);
+  assert.equal((await t.call('GET', '/api/hunter/agencies', { token: employee })).status, 403);
+  assert.equal((await t.call('DELETE', '/api/hunter/agencies/' + a.body.id, { token: admin })).status, 200);
+});

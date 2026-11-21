@@ -131,12 +131,13 @@ async function insertScoredLead(b, actorId) {
       Number.isFinite(Number(b.lat)) && b.lat !== null && b.lat !== '' ? Number(b.lat) : null,
       Number.isFinite(Number(b.lng)) && b.lng !== null && b.lng !== '' ? Number(b.lng) : null
     );
+  db.prepare('UPDATE hunter_leads SET updated_by=? WHERE id=?').run(actorId, ins.lastInsertRowid);
   return ins.lastInsertRowid;
 }
 
 router.get('/hunter/leads', requireHunterAccess, (req, res) => {
   const { q, tier, niche, status } = req.query;
-  let rows = db.prepare('SELECT * FROM hunter_leads ORDER BY score DESC, created_at DESC').all().map(parseRow);
+  let rows = db.prepare('SELECT l.*, u.name updated_by_name FROM hunter_leads l LEFT JOIN users u ON u.id=COALESCE(l.updated_by,l.created_by) ORDER BY l.score DESC, l.created_at DESC').all().map(parseRow);
   if (q) {
     const needle = String(q).toLowerCase();
     rows = rows.filter((r) => [r.name, r.city, r.contact_name].some((v) => String(v || '').toLowerCase().includes(needle)));
@@ -194,10 +195,11 @@ async function draftForLead(leadId, actor) {
     channels: JSON.parse(lead.channels || '{}'),
     contacts,
   });
-  db.prepare('UPDATE hunter_leads SET swot=?,elevator_pitch=?,updated_at=? WHERE id=?').run(
+  db.prepare('UPDATE hunter_leads SET swot=?,elevator_pitch=?,updated_at=?,updated_by=? WHERE id=?').run(
     JSON.stringify({ strengths: report.strengths, weaknesses: report.weaknesses, opportunities: report.opportunities }),
     report.elevator_pitch || '',
     now(),
+    actor && actor.id ? actor.id : null,
     leadId
   );
   const ts = now();
@@ -311,8 +313,8 @@ async function refreshInstagramLeads(limit = 40) {
     const merged = { ...lead, ig_followers: ig.followers ?? lead.ig_followers, ig_last_post_days: ig.last_post_days ?? lead.ig_last_post_days, ig_posting_frequency: ig.posting_frequency || lead.ig_posting_frequency };
     const scored = await auditAndScore({ ...merged, siteSignals: null, signal_at: lead.signal_at, signal_type: lead.signal_type });
     const channels = { ...JSON.parse(lead.channels || '{}'), instagram: scored.channels.instagram };
-    db.prepare('UPDATE hunter_leads SET ig_followers=?, ig_last_post_days=?, ig_posting_frequency=?, channels=?, updated_at=? WHERE id=?').run(
-      merged.ig_followers ?? null, merged.ig_last_post_days ?? null, merged.ig_posting_frequency || '', JSON.stringify(channels), now(), lead.id);
+    db.prepare('UPDATE hunter_leads SET ig_followers=?, ig_last_post_days=?, ig_posting_frequency=?, channels=? WHERE id=?').run(
+      merged.ig_followers ?? null, merged.ig_last_post_days ?? null, merged.ig_posting_frequency || '', JSON.stringify(channels), lead.id);
     updated++;
   }
   if (rows.length) await invalidate('hunter:');
@@ -363,7 +365,7 @@ router.put('/hunter/leads/:id', requireHunterAccess, (req, res) => {
   const status = b.status || row.status;
   const owner_id = b.owner_id !== undefined ? b.owner_id : row.owner_id;
   const notes = b.notes !== undefined ? b.notes : row.notes;
-  db.prepare('UPDATE hunter_leads SET status=?,owner_id=?,notes=?,updated_at=? WHERE id=?').run(status, owner_id, notes, now(), id);
+  db.prepare('UPDATE hunter_leads SET status=?,owner_id=?,notes=?,updated_at=?,updated_by=? WHERE id=?').run(status, owner_id, notes, now(), req.user.id, id);
   audit(req.user, 'UPDATE', 'hunter_lead', id, `status -> ${status}`);
   res.json({ ok: true });
 });
@@ -401,7 +403,7 @@ router.put('/hunter/touches/:id/approve', requireHunterAccess, (req, res) => {
   const subject = b.subject !== undefined ? b.subject : t.subject;
   const body = b.body !== undefined ? b.body : t.body;
   db.prepare('UPDATE hunter_touches SET subject=?,body=?,status=?,approved_by=?,approved_at=? WHERE id=?').run(subject, body, 'approved', req.user.id, now(), id);
-  db.prepare("UPDATE hunter_leads SET status=CASE WHEN status IN ('new','audited') THEN 'outreach' ELSE status END, updated_at=? WHERE id=?").run(now(), t.lead_id);
+  db.prepare("UPDATE hunter_leads SET status=CASE WHEN status IN ('new','audited') THEN 'outreach' ELSE status END, updated_at=?, updated_by=? WHERE id=?").run(now(), req.user.id, t.lead_id);
   audit(req.user, 'UPDATE', 'hunter_touch', id, 'Approved');
   res.json({ ok: true });
 });
@@ -437,9 +439,9 @@ router.put('/hunter/touches/:id/outcome', requireHunterAccess, (req, res) => {
         /* already on the list */
       }
     }
-    db.prepare("UPDATE hunter_leads SET status='disqualified', updated_at=? WHERE id=?").run(now(), t.lead_id);
+    db.prepare("UPDATE hunter_leads SET status='disqualified', updated_at=?, updated_by=? WHERE id=?").run(now(), req.user.id, t.lead_id);
   } else if (outcome === 'interested') {
-    db.prepare("UPDATE hunter_leads SET status='replied', updated_at=? WHERE id=?").run(now(), t.lead_id);
+    db.prepare("UPDATE hunter_leads SET status='replied', updated_at=?, updated_by=? WHERE id=?").run(now(), req.user.id, t.lead_id);
   }
   audit(req.user, 'UPDATE', 'hunter_touch', id, `Outcome: ${outcome}`);
   res.json({ ok: true });
@@ -667,6 +669,62 @@ router.delete('/hunter/notes/:id', requireHunterAccess, (req, res) => {
   if (u.role !== 'Admin' && n.created_by !== u.id) return res.status(403).json({ error: 'Only the person who wrote a note, or an Admin, can delete it' });
   db.prepare('DELETE FROM hunter_notes WHERE id=?').run(id);
   audit(u, 'DELETE', 'hunter_note', id, n.kind);
+  res.json({ ok: true });
+});
+
+// ---------------- competitor agencies (Market tab) ----------------
+const AGENCY_FIELDS = ['name', 'city', 'niches', 'clients', 'client_count', 'avg_fee', 'est_monthly_revenue', 'services', 'website', 'instagram', 'notes'];
+const AGENCY_NUM = new Set(['client_count', 'avg_fee', 'est_monthly_revenue']);
+function agencyValues(b, prev = {}) {
+  const v = {};
+  for (const f of AGENCY_FIELDS) {
+    const x = b[f] !== undefined ? b[f] : prev[f];
+    v[f] = AGENCY_NUM.has(f) ? numOrNull(x) : String(x ?? '').trim().slice(0, 2000);
+  }
+  // Monthly revenue: use what was entered, else clients x average fee.
+  if (v.est_monthly_revenue == null && v.client_count != null && v.avg_fee != null) v.est_monthly_revenue = v.client_count * v.avg_fee;
+  return v;
+}
+
+router.get('/hunter/agencies', requireHunterAccess, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT a.*, u.name updated_by_name FROM hunter_agencies a LEFT JOIN users u ON u.id=COALESCE(a.updated_by,a.created_by)
+       ${req.query.city ? 'WHERE a.city=?' : ''} ORDER BY COALESCE(a.est_monthly_revenue,0) DESC, a.name`
+    )
+    .all(...(req.query.city ? [req.query.city] : []));
+  res.json({ rows });
+});
+
+router.post('/hunter/agencies', requireHunterAccess, (req, res) => {
+  const v = agencyValues(req.body || {});
+  if (!v.name) return res.status(400).json({ error: 'Agency name is required' });
+  const ts = now();
+  const r = db
+    .prepare(`INSERT INTO hunter_agencies(${AGENCY_FIELDS.join(',')},created_by,updated_by,created_at,updated_at) VALUES(${AGENCY_FIELDS.map(() => '?').join(',')},?,?,?,?)`)
+    .run(...AGENCY_FIELDS.map((f) => v[f]), req.user.id, req.user.id, ts, ts);
+  audit(req.user, 'CREATE', 'hunter_agency', r.lastInsertRowid, v.name);
+  res.status(201).json({ id: r.lastInsertRowid });
+});
+
+router.put('/hunter/agencies/:id', requireHunterAccess, (req, res) => {
+  const id = Number(req.params.id);
+  const prev = db.prepare('SELECT * FROM hunter_agencies WHERE id=?').get(id);
+  if (!prev) return res.status(404).json({ error: 'Not found' });
+  const b = { ...(req.body || {}) };
+  // If clients/fee changed but revenue wasn't given, recompute it.
+  if (b.est_monthly_revenue === undefined && (b.client_count !== undefined || b.avg_fee !== undefined)) b.est_monthly_revenue = null;
+  const v = agencyValues(b, prev);
+  if (!v.name) return res.status(400).json({ error: 'Agency name is required' });
+  db.prepare(`UPDATE hunter_agencies SET ${AGENCY_FIELDS.map((f) => f + '=?').join(',')},updated_by=?,updated_at=? WHERE id=?`).run(...AGENCY_FIELDS.map((f) => v[f]), req.user.id, now(), id);
+  audit(req.user, 'UPDATE', 'hunter_agency', id, v.name);
+  res.json({ ok: true });
+});
+
+router.delete('/hunter/agencies/:id', requireHunterAccess, (req, res) => {
+  const r = db.prepare('DELETE FROM hunter_agencies WHERE id=?').run(Number(req.params.id));
+  if (!r.changes) return res.status(404).json({ error: 'Not found' });
+  audit(req.user, 'DELETE', 'hunter_agency', Number(req.params.id), '');
   res.json({ ok: true });
 });
 

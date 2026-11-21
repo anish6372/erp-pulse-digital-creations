@@ -168,13 +168,134 @@ async function paintMarket() {
       <div class="field" style="align-self:flex-end"><button class="btn">${icon('search')}<span>Estimate</span></button></div>
     </form>
     <div id="marketOut"></div>
-  </div>`;
+  </div>
+  <div class="card" style="margin-top:14px" id="agencyCard"></div>`;
   $('marketForm').onsubmit = async (e) => {
     e.preventDefault();
     marketParams = { niche: $('mkNiche').value, city: $('mkCity').value, months: Number($('mkMonths').value) || 2 };
     await loadMarket();
+    await loadAgencies();
   };
   await loadMarket();
+  await loadAgencies();
+}
+
+// ---------------- competitor agencies (Market tab) ----------------
+// Agencies already working with businesses in this market: who their clients are and roughly
+// what they earn. Filled in by the team from what they learn in the field.
+let agencies = [];
+let agencyAll = false;
+const inr = (n) => (n == null ? '—' : '₹' + Number(n).toLocaleString('en-IN'));
+
+async function loadAgencies() {
+  const d = await api('/api/hunter/agencies' + (agencyAll ? '' : '?city=' + encodeURIComponent(marketParams.city)));
+  agencies = d.rows || [];
+  paintAgencies();
+}
+
+function paintAgencies() {
+  const total = agencies.reduce((a, x) => a + (x.est_monthly_revenue || 0), 0);
+  const clients = agencies.reduce((a, x) => a + (x.client_count || 0), 0);
+  const top = agencies[0];
+  $('agencyCard').innerHTML = `
+    <div class="sectionHead">
+      <div><h3>Competitor agencies ${agencyAll ? '(all locations)' : 'in ' + esc(marketParams.city)}</h3>
+      <div class="mini">Agencies already working with businesses here - who their clients are and roughly what they earn.</div></div>
+      <div class="pnl"><button class="btn alt" id="agAll">${agencyAll ? 'Only ' + esc(marketParams.city) : 'Show all locations'}</button><button class="btn" id="agAdd">${icon('plus')}<span>Add agency</span></button></div>
+    </div>
+    <div class="grid g4" style="margin:10px 0">
+      ${kpi('Agencies tracked', agencies.length, '')}
+      ${kpi('Their clients', clients, 'known businesses')}
+      ${kpi('Est. monthly revenue', inr(total), 'all tracked agencies')}
+      ${kpi('Biggest', top ? top.name : '—', top ? inr(top.est_monthly_revenue) + ' / month' : '')}
+    </div>
+    <div class="tableWrap"><table class="table"><thead><tr><th>Agency</th><th>Location</th><th>Niches</th><th>Clients (who they work with)</th><th>No. of clients</th><th>Avg fee / client</th><th>Est. revenue / month</th><th>Services</th><th>Updated</th><th></th></tr></thead><tbody>${
+      agencies
+        .map(
+          (a) => `<tr><td><b>${esc(a.name)}</b>${
+            a.website ? `<br><a class="mini" href="${esc(/^https?:/i.test(a.website) ? a.website : 'https://' + a.website)}" target="_blank" rel="noopener">Website</a>` : ''
+          }${a.instagram ? ` <span class="mini">${esc(a.instagram)}</span>` : ''}</td><td class="mini">${esc(a.city || '—')}</td><td class="mini">${esc(a.niches || '—')}</td><td class="mini" style="max-width:260px;white-space:normal">${esc(
+            a.clients || '—'
+          )}</td><td>${a.client_count ?? '—'}</td><td>${inr(a.avg_fee)}</td><td><b>${inr(a.est_monthly_revenue)}</b></td><td class="mini" style="white-space:normal">${esc(
+            a.services || '—'
+          )}</td><td class="mini">${esc(a.updated_by_name || '—')}<br>${esc(fmtWhen(a.updated_at))}</td><td style="white-space:nowrap"><button class="btn alt" data-ag-edit="${
+            a.id
+          }" style="padding:3px 9px;font-size:11px">Edit</button> <button class="btn danger" data-ag-del="${a.id}" style="padding:3px 9px;font-size:11px">${icon('trash')}</button></td></tr>`
+        )
+        .join('') || '<tr><td colspan="10" class="empty">No agencies added yet for this location.</td></tr>'
+    }</tbody></table></div>`;
+  $('agAdd').onclick = () => openAgency();
+  $('agAll').onclick = async () => {
+    agencyAll = !agencyAll;
+    await loadAgencies();
+  };
+  $('agencyCard')
+    .querySelectorAll('[data-ag-edit]')
+    .forEach((b) => (b.onclick = () => openAgency(agencies.find((x) => x.id === Number(b.dataset.agEdit)))));
+  $('agencyCard')
+    .querySelectorAll('[data-ag-del]')
+    .forEach(
+      (b) =>
+        (b.onclick = async () => {
+          const a = agencies.find((x) => x.id === Number(b.dataset.agDel));
+          if (!(await confirmDialog(`Delete ${a.name}?`, { title: 'Delete agency', confirmText: 'Delete' }))) return;
+          try {
+            await api('/api/hunter/agencies/' + a.id, { method: 'DELETE' });
+            toast('Agency deleted');
+            await loadAgencies();
+          } catch (e) {
+            toast(e.message);
+          }
+        })
+    );
+}
+
+function openAgency(a = {}) {
+  const f = (id, label, val, opts = {}) =>
+    `<div class="field ${opts.full ? 'full' : ''}"><label>${label}</label>${
+      opts.area ? `<textarea id="${id}">${esc(val ?? '')}</textarea>` : `<input id="${id}" ${opts.num ? 'type="number" min="0"' : ''} value="${esc(val ?? '')}">`
+    }</div>`;
+  openModal(
+    a.id ? 'Edit agency' : 'Add agency',
+    `<form id="agForm"><div class="fgrid">
+      ${f('agName', 'Agency name *', a.name, { full: true })}
+      <div class="field"><label>Location</label><select id="agCity">${CITIES.map((c) => `<option ${(a.city || marketParams.city) === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+      ${f('agNiches', 'Niches they serve', a.niches)}
+      ${f('agClients', 'Clients they work with (names, comma separated)', a.clients, { full: true, area: true })}
+      ${f('agCount', 'Number of clients', a.client_count, { num: true })}
+      ${f('agFee', 'Avg fee per client / month (₹)', a.avg_fee, { num: true })}
+      ${f('agRev', 'Est. revenue / month (₹) - leave empty to use clients × fee', a.est_monthly_revenue, { num: true, full: true })}
+      ${f('agServices', 'Services (reels, ads, SEO…)', a.services, { full: true })}
+      ${f('agWeb', 'Website', a.website)}
+      ${f('agIg', 'Instagram', a.instagram)}
+      ${f('agNotes', 'Notes', a.notes, { full: true, area: true })}
+    </div><button class="btn" style="margin-top:10px">${a.id ? 'Save' : 'Add agency'}</button></form>`,
+    { wide: true }
+  );
+  $('agForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const body = {
+      name: $('agName').value,
+      city: $('agCity').value,
+      niches: $('agNiches').value,
+      clients: $('agClients').value,
+      client_count: $('agCount').value,
+      avg_fee: $('agFee').value,
+      est_monthly_revenue: $('agRev').value === '' ? null : $('agRev').value,
+      services: $('agServices').value,
+      website: $('agWeb').value,
+      instagram: $('agIg').value,
+      notes: $('agNotes').value,
+    };
+    try {
+      await api('/api/hunter/agencies' + (a.id ? '/' + a.id : ''), { method: a.id ? 'PUT' : 'POST', body: JSON.stringify(body) });
+      closeModal();
+      toast(a.id ? 'Agency updated' : 'Agency added');
+      await loadAgencies();
+    } catch (err) {
+      toast(err.message);
+    }
+  };
 }
 
 async function loadMarket() {
@@ -377,6 +498,8 @@ async function loadLeads() {
 }
 
 // Instagram, Google and contact details shown on each row of the Leads list.
+const fmtWhen = (iso) => (iso ? new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+
 function leadDetailCells(l) {
   const ig = (l.instagram || '').trim();
   const bare = ig.replace(/[?#].*$/, '').replace(/\/+$/, '');
@@ -411,17 +534,17 @@ function renderLeadsList(allRows) {
       <div class="pnl"><button class="btn alt" id="hlIgBtn" title="Look up followers and last post from Instagram for leads with a handle">${icon('refresh')}<span>Refresh Instagram</span></button>
       <button class="btn" data-tab="add" id="hlAddBtn">${icon('plus')}<span>Add lead</span></button></div>
     </div>
-    <div class="tableWrap"><table class="table"><thead><tr><th>Score</th><th>Business</th><th>Niche</th><th>Location</th><th>Instagram</th><th>Followers</th><th>Last post</th><th>Google</th><th>Contact</th><th>Why now</th><th>Status</th></tr></thead><tbody>${
+    <div class="tableWrap"><table class="table"><thead><tr><th>Score</th><th>Business</th><th>Niche</th><th>Location</th><th>Instagram</th><th>Followers</th><th>Last post</th><th>Google</th><th>Contact</th><th>Why now</th><th>Status</th><th>Updated</th></tr></thead><tbody>${
       rows.length
         ? rows
             .map(
               (l) =>
                 `<tr class="click" data-open-lead="${l.id}"><td><b>${l.score}</b> <span class="badge ${TIER_CLASS[l.tier] || 'gray'}">${esc(l.tier)}</span></td><td>${esc(l.name)}</td><td class="mini">${esc(
                   NICHES[l.niche] || l.niche
-                )}</td><td class="mini">${esc(l.city || '—')}</td>${leadDetailCells(l)}<td class="mini">${esc(l.signal_title || '—')}</td><td><span class="badge gray">${esc(STATUS_LABEL[l.status] || l.status)}</span></td></tr>`
+                )}</td><td class="mini">${esc(l.city || '—')}</td>${leadDetailCells(l)}<td class="mini">${esc(l.signal_title || '—')}</td><td><span class="badge gray">${esc(STATUS_LABEL[l.status] || l.status)}</span></td><td class="mini">${esc(l.updated_by_name || '—')}<br>${esc(fmtWhen(l.updated_at))}</td></tr>`
             )
             .join('')
-        : '<tr><td colspan="11" class="empty">No leads match these filters.</td></tr>'
+        : '<tr><td colspan="12" class="empty">No leads match these filters.</td></tr>'
     }</tbody></table></div>${pg.html}
   </div>`;
   bindPager($('hunterBody'), 'hunter-leads', () => renderLeadsList(allRows));
@@ -476,7 +599,7 @@ async function openLeadDetail(id) {
   const col = (title, items) => `<div><h3 style="margin-bottom:6px">${title}</h3>${items && items.length ? `<ul style="margin:0;padding-left:18px">${items.map((i) => `<li class="mini">${esc(i)}</li>`).join('')}</ul>` : '<div class="mini">None noted.</div>'}</div>`;
   openModal(
     l.name,
-    `<div class="mini" style="margin-bottom:8px">${esc(NICHES[l.niche] || l.niche)} &middot; ${esc(l.city || '—')} &middot; <span class="badge ${TIER_CLASS[l.tier] || 'gray'}">${esc(l.tier)}</span> score ${l.score}</div>
+    `<div class="mini" style="margin-bottom:8px">${esc(NICHES[l.niche] || l.niche)} &middot; ${esc(l.city || '—')} &middot; <span class="badge ${TIER_CLASS[l.tier] || 'gray'}">${esc(l.tier)}</span> score ${l.score}${l.updated_at ? ` &middot; Updated ${esc(fmtWhen(l.updated_at))}${l.updated_by_name ? ' by ' + esc(l.updated_by_name) : ''}` : ''}</div>
     ${l.elevator_pitch ? `<div class="notice ok" style="margin-bottom:10px"><b>Opening line:</b> ${esc(l.elevator_pitch)}</div>` : ''}
     <div class="card soft" style="margin-bottom:10px">${chRow('Website', ch.website)}${chRow('Instagram', ch.instagram)}${chRow('Google Business', ch.gmb)}</div>
     <div class="grid g3" style="margin-bottom:10px">${col('Strengths', swot.strengths)}${col('Weaknesses', swot.weaknesses)}${col('Opportunities', swot.opportunities)}</div>
