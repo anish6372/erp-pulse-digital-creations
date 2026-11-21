@@ -504,12 +504,30 @@ function leadBreakdown() {
   return { cities, niches };
 }
 
+// When the team hasn't entered a budget or needs for a lead, fill in estimates so the Market
+// table is useful straight away: budget = typical monthly spend for that niche in that city,
+// needs = the gaps the audit found (no website, quiet Instagram, few Google reviews).
+function suggestedNeeds(p) {
+  const ch = JSON.parse(p.channels || '{}');
+  const out = [];
+  if (!p.website || (ch.website && ch.website.score != null && ch.website.score <= 2)) out.push('Website');
+  if (!p.instagram) out.push('Instagram setup');
+  else if (ch.instagram && ch.instagram.score != null && ch.instagram.score <= 2) out.push('Regular posts & reels');
+  if (p.gmb_reviews == null || p.gmb_reviews < 20 || (p.gmb_rating != null && p.gmb_rating < 4)) out.push('Google reviews & profile');
+  return out.join(', ') || 'Ads & growth';
+}
+function withEstimates(p) {
+  const est = estimateMarket({ niche: p.niche, city: p.city || '' });
+  const { channels, website, instagram, gmb_rating, ...rest } = p;
+  return { ...rest, budget_estimate: p.budget == null ? est.avg_project_value_estimate : null, services_suggested: p.services_needed ? '' : suggestedNeeds(p) };
+}
+
 router.get('/hunter/market', requireHunterAccess, async (req, res) => {
   const estimate = estimateMarket({ niche: req.query.niche || 'other', city: req.query.city || '', months: req.query.months });
   const { cities, niches } = await cached('hunter:breakdown', 15, leadBreakdown);
   const cityMeta = CITIES[req.query.city];
   const points = cityMeta
-    ? db.prepare('SELECT id,name,niche,score,tier,gmb_reviews,lat,lng,current_agency,budget,services_needed FROM hunter_leads WHERE city=?').all(req.query.city)
+    ? db.prepare('SELECT id,name,niche,city,score,tier,gmb_reviews,gmb_rating,website,instagram,channels,lat,lng,current_agency,budget,services_needed FROM hunter_leads WHERE city=?').all(req.query.city).map(withEstimates)
     : [];
   res.json({ estimate, cities, niches, center: cityMeta ? { lat: cityMeta.lat, lng: cityMeta.lng } : null, points, localities: Object.entries(LOCALITIES[req.query.city] || {}).map(([name, [lat, lng]]) => ({ name, lat, lng })), unlocated: cityMeta ? db.prepare('SELECT COUNT(*) c FROM hunter_leads WHERE city=? AND lat IS NULL AND geo_tried=0').get(req.query.city).c : 0, note: 'Illustrative estimate from category benchmarks, not live scraped market data. City and niche breakdowns below are your real leads.' });
 });
@@ -675,6 +693,92 @@ router.delete('/hunter/notes/:id', requireHunterAccess, (req, res) => {
   db.prepare('DELETE FROM hunter_notes WHERE id=?').run(id);
   audit(u, 'DELETE', 'hunter_note', id, n.kind);
   res.json({ ok: true });
+});
+
+// ---------------- prospect reports (approved leads) ----------------
+// A lead marked "Approved" gets a pitch report: what they already have, what's missing,
+// what Pulse can do about each gap, a likely budget, and how to open the conversation.
+// Built from the lead's own audit data, so it costs nothing and works without AI.
+function buildProspectReport(lead) {
+  const ch = typeof lead.channels === 'string' ? JSON.parse(lead.channels || '{}') : lead.channels || {};
+  const swot = typeof lead.swot === 'string' ? JSON.parse(lead.swot || '{}') : lead.swot || {};
+  const est = estimateMarket({ niche: lead.niche, city: lead.city || '' });
+  const has = [];
+  const missing = [];
+  const offers = [];
+  const add = (service, why, priority) => offers.push({ service, why, priority });
+
+  // Website
+  if (!lead.website) {
+    missing.push('No website');
+    add('Website design + local SEO', 'Customers searching for them online land on nothing they control.', 'High');
+  } else if (ch.website && ch.website.score != null && ch.website.score <= 2) {
+    missing.push('Weak website' + (ch.website.evidence && ch.website.evidence.length ? ` (${ch.website.evidence.slice(0, 2).join(', ')})` : ''));
+    add('Website refresh (mobile-friendly, fast, clear contact)', 'Their site exists but loses visitors.', 'Medium');
+  } else has.push('A working website');
+
+  // Instagram
+  const followers = lead.ig_followers;
+  const lastPost = lead.ig_last_post_days;
+  if (!lead.instagram) {
+    missing.push('No Instagram');
+    add('Instagram setup + content calendar', 'Their customers are on Instagram and they are not.', 'High');
+  } else {
+    if (lastPost != null && lastPost > 14) {
+      missing.push(`Instagram quiet - last post ${lastPost} days ago`);
+      add('Monthly content retainer (reels + posts)', `Nothing posted for ${lastPost} days; the account looks inactive to new customers.`, 'High');
+    } else if (lastPost != null) has.push(`Active Instagram (posted ${lastPost === 0 ? 'today' : lastPost + ' days ago'})`);
+    if (followers != null && followers < 1000) {
+      missing.push(`Small Instagram audience (${followers} followers)`);
+      add('Instagram growth + local ads', 'Small audience - targeted ads in their area grow it quickly.', 'Medium');
+    } else if (followers != null) has.push(`${Number(followers).toLocaleString('en-IN')} Instagram followers`);
+  }
+
+  // Google
+  if (lead.gmb_reviews == null) {
+    missing.push('Google Business profile not found / not checked');
+    add('Google Business Profile setup', 'Most local searches start on Google Maps.', 'High');
+  } else if (lead.gmb_reviews < 20 || (lead.gmb_rating != null && lead.gmb_rating < 4)) {
+    missing.push(`Few Google reviews (${lead.gmb_reviews}${lead.gmb_rating != null ? ', ' + lead.gmb_rating + '★' : ''})`);
+    add('Google review drive + profile optimisation', 'Competitors nearby with more reviews rank above them.', 'High');
+  } else has.push(`${lead.gmb_reviews} Google reviews${lead.gmb_rating != null ? ' at ' + lead.gmb_rating + '★' : ''}`);
+
+  if (!offers.length) add('Performance ads (Meta + Google)', 'Their basics are in place - ads turn that into more walk-ins and orders.', 'Medium');
+
+  const budget = lead.budget != null ? lead.budget : est.avg_project_value_estimate;
+  const firstGap = missing[0] ? missing[0].toLowerCase() : 'room to grow online';
+  const who = lead.contact_name ? lead.contact_name.split(' ')[0] : 'there';
+  const pitch =
+    lead.elevator_pitch ||
+    `Hi ${who}, I'm from Pulse Digital Creations. We looked at ${lead.name} online and noticed ${firstGap}. We help ${(NICHES[lead.niche]?.label || 'local businesses').toLowerCase()} in ${lead.city || 'your area'} fix exactly this - could I show you a quick plan?`;
+
+  const talking = [
+    ...(swot.weaknesses || []).slice(0, 3),
+    ...(swot.opportunities || []).slice(0, 3),
+    lead.current_agency ? `They currently work with ${lead.current_agency} - ask what they are happy and unhappy with, and show what that agency is missing (${missing.slice(0, 2).join(', ') || 'results'}).` : 'Ask who handles their marketing today - if nobody, they are an easy first client.',
+    lead.signal_title ? `Why now: ${lead.signal_title}` : '',
+  ].filter(Boolean);
+
+  return {
+    has,
+    missing,
+    offers: offers.sort((a, b) => (a.priority === b.priority ? 0 : a.priority === 'High' ? -1 : 1)),
+    budget,
+    budget_is_estimate: lead.budget == null,
+    services_needed: lead.services_needed || offers.map((o) => o.service).join(', '),
+    pitch,
+    talking_points: talking,
+    strengths: swot.strengths || [],
+  };
+}
+
+router.get('/hunter/prospects', requireHunterAccess, (req, res) => {
+  const rows = db
+    .prepare("SELECT l.*, u.name updated_by_name FROM hunter_leads l LEFT JOIN users u ON u.id=COALESCE(l.updated_by,l.created_by) WHERE l.status='approved' ORDER BY l.updated_at DESC")
+    .all()
+    .map(parseRow)
+    .map((l) => ({ ...l, report: buildProspectReport(l) }));
+  res.json({ rows });
 });
 
 // ---------------- competitor agencies (Market tab) ----------------

@@ -30,7 +30,7 @@ const SIGNALS = {
   manual: 'Found by team',
   weak_presence: 'Weak online presence',
 };
-const STATUS_LABEL = { new: 'New', audited: 'Audited', outreach: 'Outreach', replied: 'Replied', meeting: 'Meeting', handed_off: 'Handed off', won: 'Won', lost: 'Lost', disqualified: 'Disqualified' };
+const STATUS_LABEL = { new: 'New', audited: 'Audited', approved: 'Approved', outreach: 'Outreach', replied: 'Replied', meeting: 'Meeting', handed_off: 'Handed off', won: 'Won', lost: 'Lost', disqualified: 'Disqualified' };
 const TIER_CLASS = { hot: 'red', warm: 'yellow', parked: 'gray' };
 
 const COMPLIANCE_RULES = [
@@ -71,7 +71,7 @@ function paintShell() {
   ${cfg.enabled === false ? '<div class="notice warn">AI drafting isn\'t configured (no Anthropic API key set). Leads can still be added and scored - you just won\'t get AI-drafted outreach messages.</div>' : ''}
   ${cfg.hunts_enabled === false ? '<div class="notice warn">Automatic lead discovery isn\'t configured (no Apify token set). Add leads by hand in the meantime - everything else still works.</div>' : ''}
   <div class="pnl" style="margin-bottom:14px;flex-wrap:wrap">
-    ${tabBtn('dashboard', 'Dashboard')}${tabBtn('market', 'Market')}${tabBtn('hunts', 'Hunts')}${tabBtn('add', 'Add leads')}${tabBtn('leads', 'Leads')}${tabBtn('approvals', 'Approvals')}${tabBtn('tasks', 'Tasks')}${tabBtn('notes', 'Notes')}${isAdmin() ? tabBtn('compliance', 'Compliance') : ''}
+    ${tabBtn('dashboard', 'Dashboard')}${tabBtn('market', 'Market')}${tabBtn('hunts', 'Hunts')}${tabBtn('add', 'Add leads')}${tabBtn('leads', 'Leads')}${tabBtn('approvals', 'Approvals')}${tabBtn('prospects', 'Prospects')}${tabBtn('tasks', 'Tasks')}${tabBtn('notes', 'Notes')}${isAdmin() ? tabBtn('compliance', 'Compliance') : ''}
   </div>
   <div id="hunterBody"></div>`;
   $('page-hunter')
@@ -103,6 +103,7 @@ async function loadTab() {
     else if (tab === 'add') paintAdd();
     else if (tab === 'hunts') await paintHunts();
     else if (tab === 'notes') await paintNotes();
+    else if (tab === 'prospects') await paintProspects();
     else if (tab === 'compliance') await paintCompliance();
   } catch (e) {
     body.innerHTML = `<div class="card"><div class="err">Could not load this tab: ${esc(e.message)}</div></div>`;
@@ -437,7 +438,9 @@ function radialSection(d, m) {
     .join('');
   const rows = near
     .slice(0, 12)
-    .map((p) => `<tr data-lead-id="${p.id}" style="cursor:pointer"><td><b>${esc(p.name)}</b><div class="mini">${esc(NICHES[p.niche] || p.niche)}</div></td><td>${esc(areaOf(p))}</td><td>${p.current_agency ? esc(p.current_agency) : '<span class="mini">—</span>'}</td><td>${p.budget != null ? '₹' + Number(p.budget).toLocaleString('en-IN') : '<span class="mini">—</span>'}</td><td class="mini" style="white-space:normal;max-width:200px">${esc(p.services_needed || '—')}</td><td>${p.km.toFixed(1)} km</td><td>${p.gmb_reviews ?? '—'}</td><td>${p.score}</td><td><span class="badge ${TIER_CLASS[p.tier] || 'gray'}">${esc(p.tier)}</span></td></tr>`)
+    .map((p) => `<tr data-lead-id="${p.id}" style="cursor:pointer"><td><b>${esc(p.name)}</b><div class="mini">${esc(NICHES[p.niche] || p.niche)}</div></td><td>${esc(areaOf(p))}</td><td>${p.current_agency ? esc(p.current_agency) : '<span class="mini" title="Not known yet - ask them and add it on the lead">Not known</span>'}</td><td>${
+      p.budget != null ? '₹' + Number(p.budget).toLocaleString('en-IN') : p.budget_estimate ? `<span class="mini" title="Typical monthly spend for this niche in this city - replace with the real figure on the lead">~₹${Number(p.budget_estimate).toLocaleString('en-IN')} est.</span>` : '<span class="mini">—</span>'
+    }</td><td class="mini" style="white-space:normal;max-width:200px">${p.services_needed ? esc(p.services_needed) : p.services_suggested ? `<i title="Suggested from the audit (website, Instagram, Google reviews)">${esc(p.services_suggested)}</i>` : '—'}</td><td>${p.km.toFixed(1)} km</td><td>${p.gmb_reviews ?? '—'}</td><td>${p.score}</td><td><span class="badge ${TIER_CLASS[p.tier] || 'gray'}">${esc(p.tier)}</span></td></tr>`)
     .join('');
   const note = [
     unpinned > 0 ? `${unpinned} lead(s) here aren't pinned because they have no coordinates (leads found by a Hunt are pinned automatically).` : '',
@@ -878,11 +881,105 @@ async function submitAdd(e) {
 
 // ---------- approvals / tasks ----------
 
+// ---------------- prospects (approved leads -> pitch report) ----------------
+let prospectSel = null;
+
+async function paintProspects() {
+  const d = await api('/api/hunter/prospects');
+  const rows = d.rows || [];
+  if (!rows.length) {
+    $('hunterBody').innerHTML = `<div class="card"><h3>Prospects</h3><div class="empty">No approved leads yet. Open a lead in <b>Leads</b>, set its status to <b>Approved</b> and save - its pitch report appears here.</div></div>`;
+    return;
+  }
+  if (!rows.some((r) => r.id === prospectSel)) prospectSel = rows[0].id;
+  const cur = rows.find((r) => r.id === prospectSel);
+  $('hunterBody').innerHTML = `<div class="grid" style="grid-template-columns:minmax(220px,280px) 1fr;gap:14px;align-items:start">
+    <div class="card"><h3 style="margin-bottom:8px">Approved leads (${rows.length})</h3>${rows
+      .map(
+        (r) => `<div class="click" data-prospect="${r.id}" style="padding:8px;border-radius:6px;margin-bottom:4px;cursor:pointer;${r.id === prospectSel ? 'background:var(--panel);' : ''}">
+          <b>${esc(r.name)}</b><div class="mini">${esc(NICHES[r.niche] || r.niche)} &middot; ${esc(r.city || '—')}</div></div>`
+      )
+      .join('')}</div>
+    <div id="prospectReport">${prospectReportHtml(cur)}</div>
+  </div>`;
+  $('hunterBody')
+    .querySelectorAll('[data-prospect]')
+    .forEach((el) => (el.onclick = () => { prospectSel = Number(el.dataset.prospect); paintProspects(); }));
+  const pb = $('prPrint');
+  if (pb) pb.onclick = () => printProspect(cur);
+  const cb = $('prCopy');
+  if (cb) cb.onclick = async () => { try { await navigator.clipboard.writeText(cur.report.pitch); toast('Pitch copied'); } catch (e) { toast('Could not copy'); } };
+}
+
+function prospectReportHtml(l) {
+  const r = l.report;
+  const list = (items, empty) => (items.length ? `<ul style="margin:0;padding-left:18px;line-height:1.6">${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>` : `<div class="mini">${empty}</div>`);
+  return `<div class="card">
+    <div class="sectionHead"><div><h3>${esc(l.name)}</h3><div class="mini">${esc(NICHES[l.niche] || l.niche)} &middot; ${esc(l.city || '—')} &middot; score ${l.score} &middot; approved ${esc(fmtWhen(l.updated_at))}${l.updated_by_name ? ' by ' + esc(l.updated_by_name) : ''}</div></div>
+      <div class="pnl"><button class="btn alt" id="prCopy">Copy pitch</button><button class="btn" id="prPrint">Print / PDF</button></div></div>
+    <div class="notice ok" style="margin:10px 0"><b>Opening pitch:</b> ${esc(r.pitch)}</div>
+    <div class="grid g3" style="margin-bottom:12px">
+      ${kpi('Likely budget', '₹' + Number(r.budget || 0).toLocaleString('en-IN'), r.budget_is_estimate ? 'per month (estimate for this niche & city)' : 'per month (from the lead)')}
+      ${kpi('Gaps found', r.missing.length, 'things Pulse can fix')}
+      ${kpi('Current agency', l.current_agency || 'Not known', l.current_agency ? 'switch pitch' : 'ask who handles marketing')}
+    </div>
+    <div class="grid g2" style="margin-bottom:12px">
+      <div class="card soft"><h3 style="margin-bottom:6px">What they already have</h3>${list(r.has, 'Nothing confirmed yet.')}</div>
+      <div class="card soft"><h3 style="margin-bottom:6px">What's missing</h3>${list(r.missing, 'No obvious gaps - pitch growth and ads.')}</div>
+    </div>
+    <h3 style="margin-bottom:6px">What Pulse can do for them</h3>
+    <div class="tableWrap" style="margin-bottom:12px"><table class="table"><thead><tr><th>Service</th><th>Why it matters for them</th><th>Priority</th></tr></thead><tbody>${r.offers
+      .map((o) => `<tr><td><b>${esc(o.service)}</b></td><td class="mini" style="white-space:normal">${esc(o.why)}</td><td><span class="badge ${o.priority === 'High' ? 'red' : 'yellow'}">${esc(o.priority)}</span></td></tr>`)
+      .join('')}</tbody></table></div>
+    <div class="grid g2">
+      <div class="card soft"><h3 style="margin-bottom:6px">Talking points</h3>${list(r.talking_points, '—')}</div>
+      <div class="card soft"><h3 style="margin-bottom:6px">Contact</h3>${list(
+        [l.contact_name && `${l.contact_name}${l.contact_role ? ' (' + l.contact_role + ')' : ''}`, l.phone && 'Phone: ' + l.phone, l.email && 'Email: ' + l.email, l.instagram && 'Instagram: ' + l.instagram, l.website && 'Website: ' + l.website].filter(Boolean),
+        'No contact details saved.'
+      )}</div>
+    </div>
+  </div>`;
+}
+
+function printProspect(l) {
+  const w = window.open('', '_blank');
+  if (!w) return toast('Allow pop-ups to print the report');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(l.name)} - Pulse pitch report</title>
+    <style>body{font-family:system-ui,sans-serif;max-width:820px;margin:24px auto;padding:0 16px;color:#111}h1{margin:0}h3{margin:18px 0 6px}.mini{color:#666;font-size:13px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left;font-size:14px}.box{background:#f4f1ea;padding:10px;border-radius:6px}</style></head><body>
+    <h1>${esc(l.name)}</h1><div class="mini">${esc(NICHES[l.niche] || l.niche)} · ${esc(l.city || '')} · Pulse Digital Creations pitch report</div>
+    <h3>Opening pitch</h3><div class="box">${esc(l.report.pitch)}</div>
+    <h3>Likely budget</h3><div>₹${Number(l.report.budget || 0).toLocaleString('en-IN')} / month${l.report.budget_is_estimate ? ' (estimate)' : ''}</div>
+    <h3>What they already have</h3><ul>${l.report.has.map((x) => `<li>${esc(x)}</li>`).join('') || '<li>—</li>'}</ul>
+    <h3>What's missing</h3><ul>${l.report.missing.map((x) => `<li>${esc(x)}</li>`).join('') || '<li>—</li>'}</ul>
+    <h3>What Pulse can do</h3><table><tr><th>Service</th><th>Why</th><th>Priority</th></tr>${l.report.offers.map((o) => `<tr><td>${esc(o.service)}</td><td>${esc(o.why)}</td><td>${esc(o.priority)}</td></tr>`).join('')}</table>
+    <h3>Talking points</h3><ul>${l.report.talking_points.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+    </body></html>`);
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
 async function paintTouches(statusFilter, mode) {
   const d = await api('/api/hunter/touches?status=' + statusFilter);
+  const approvedLeads = mode === 'approvals' ? (await api('/api/hunter/prospects')).rows || [] : [];
   const rows = (d.rows || []).filter((r) => (mode === 'tasks' ? !r.outcome : true));
-  $('hunterBody').innerHTML = `<div class="card">
-    <h3 style="margin-bottom:10px">${mode === 'approvals' ? 'Approvals' : 'Tasks'}</h3>
+  $('hunterBody').innerHTML = `${
+    mode === 'approvals'
+      ? `<div class="card" style="margin-bottom:14px"><div class="sectionHead"><h3>Approved leads (${approvedLeads.length})</h3><button class="btn alt" id="toProspects">Open pitch reports</button></div>${
+          approvedLeads.length
+            ? `<div class="tableWrap"><table class="table"><thead><tr><th>Business</th><th>Niche</th><th>Location</th><th>Score</th><th>Approved</th><th></th></tr></thead><tbody>${approvedLeads
+                .map(
+                  (l) =>
+                    `<tr><td><b>${esc(l.name)}</b></td><td class="mini">${esc(NICHES[l.niche] || l.niche)}</td><td class="mini">${esc(l.city || '—')}</td><td>${l.score}</td><td class="mini">${esc(l.updated_by_name || '—')}<br>${esc(
+                      fmtWhen(l.updated_at)
+                    )}</td><td><button class="btn alt" data-report="${l.id}" style="padding:3px 9px;font-size:11px">Pitch report</button></td></tr>`
+                )
+                .join('')}</tbody></table></div>`
+            : '<div class="empty">No approved leads yet - set a lead\'s status to <b>Approved</b> in Leads.</div>'
+        }</div>`
+      : ''
+  }<div class="card">
+    <h3 style="margin-bottom:10px">${mode === 'approvals' ? 'Message approvals' : 'Tasks'}</h3>
     <div class="mini" style="margin-bottom:10px">${mode === 'approvals' ? 'Review each AI-drafted message. Edit if needed, then approve or reject - nothing sends itself.' : 'Approved messages waiting to be sent by hand (DM, call, email) and logged below.'}</div>
     ${
       rows.length
@@ -909,6 +1006,10 @@ async function paintTouches(statusFilter, mode) {
         : `<div class="empty">Nothing ${mode === 'approvals' ? 'to approve' : 'pending'} right now.</div>`
     }
   </div>`;
+  if ($('toProspects')) $('toProspects').onclick = () => switchTab('prospects');
+  $('hunterBody')
+    .querySelectorAll('[data-report]')
+    .forEach((b) => (b.onclick = () => { prospectSel = Number(b.dataset.report); switchTab('prospects'); }));
 
   $('page-hunter')
     .querySelectorAll('[data-approve]')

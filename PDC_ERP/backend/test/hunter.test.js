@@ -142,3 +142,18 @@ test('Client Hunter: leads show who updated them; competitor agencies can be tra
   assert.equal(pt.services_needed, 'Reels');
   assert.equal((await t.call('DELETE', '/api/hunter/agencies/' + a.body.id, { token: admin })).status, 200);
 });
+
+test('Client Hunter: an Approved lead gets a prospect pitch report', async () => {
+  const add = await t.call('POST', '/api/hunter/leads', { token: sales, body: { name: 'Pitch Me Cafe', niche: 'cafe_restaurant', city: 'Pune', gmb_reviews: 5, gmb_rating: 3.8 } });
+  const id = add.body.lead.id;
+  let list = (await t.call('GET', '/api/hunter/prospects', { token: sales })).body.rows;
+  assert.ok(!list.some((r) => r.id === id)); // not approved yet
+  assert.equal((await t.call('PUT', '/api/hunter/leads/' + id, { token: sales, body: { status: 'approved' } })).status, 200);
+  list = (await t.call('GET', '/api/hunter/prospects', { token: sales })).body.rows;
+  const p = list.find((r) => r.id === id);
+  assert.ok(p.report.pitch.includes('Pitch Me Cafe'));
+  assert.ok(p.report.missing.some((m) => /website/i.test(m)));
+  assert.ok(p.report.offers.some((o) => /Google review/i.test(o.service)));
+  assert.ok(p.report.budget > 0 && p.report.budget_is_estimate);
+  assert.equal((await t.call('GET', '/api/hunter/prospects', { token: employee })).status, 403);
+});
