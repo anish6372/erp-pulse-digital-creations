@@ -14,6 +14,7 @@ const { NICHES, CITIES, LOCALITIES, SIGNALS, computeScore, websiteChannelScore, 
 const { searchGoogleMaps, huntSignal } = require('../utils/apifyHunt');
 const { makeLimiter } = require('../utils/limiter');
 const { lookupInstagram, igHandle } = require('../utils/igLookup');
+const { sendMailOrThrow, mailEnabled } = require('../utils/mailer');
 // Store Instagram as a clean "@handle" whatever was pasted (URL, share link, plain name).
 const cleanIg = (v) => (igHandle(v) ? '@' + igHandle(v) : String(v || '').trim());
 const { cached, invalidate } = require('../utils/cache');
@@ -32,7 +33,7 @@ const normalize = (v) => String(v || '').trim().toLowerCase();
 const aiLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, limit: 30, message: 'Too many AI requests this hour. Try again later.', prefix: 'hunter-ai' });
 
 router.get('/hunter/config', requireHunterAccess, (req, res) => {
-  res.json({ enabled: !!process.env.ANTHROPIC_API_KEY, hunts_enabled: !!process.env.APIFY_TOKEN, niches: NICHES });
+  res.json({ enabled: !!process.env.ANTHROPIC_API_KEY, hunts_enabled: !!process.env.APIFY_TOKEN, email_enabled: mailEnabled(), niches: NICHES });
 });
 
 function parseRow(r) {
@@ -390,13 +391,44 @@ router.get('/hunter/touches', requireHunterAccess, (req, res) => {
   const status = req.query.status;
   let rows = db
     .prepare(
-      `SELECT t.*, l.name lead_name, l.tier lead_tier, l.niche lead_niche, u.name approved_by_name
-       FROM hunter_touches t JOIN hunter_leads l ON l.id=t.lead_id LEFT JOIN users u ON u.id=t.approved_by
+      `SELECT t.*, l.name lead_name, l.tier lead_tier, l.niche lead_niche, l.phone lead_phone, l.email lead_email, l.instagram lead_instagram, u.name approved_by_name, s.name sent_by_name
+       FROM hunter_touches t JOIN hunter_leads l ON l.id=t.lead_id LEFT JOIN users u ON u.id=t.approved_by LEFT JOIN users s ON s.id=t.sent_by
        ORDER BY t.created_at DESC`
     )
     .all();
   if (status) rows = rows.filter((r) => r.status === status);
   res.json({ rows });
+});
+
+// Send an approved message. Email goes out from the server (SMTP); WhatsApp and Instagram open
+// on the person's own phone/browser with the text filled in, and this just records that it was sent.
+// Nothing is ever sent without someone clicking, and the do-not-contact list is checked first.
+router.post('/hunter/touches/:id/send', requireHunterAccess, async (req, res) => {
+  const id = Number(req.params.id);
+  const t = db.prepare('SELECT t.*, l.email lead_email, l.phone lead_phone, l.instagram lead_instagram, l.name lead_name FROM hunter_touches t JOIN hunter_leads l ON l.id=t.lead_id WHERE t.id=?').get(id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  if (t.status !== 'approved') return res.status(409).json({ error: 'Approve the message before sending it' });
+  const via = ['email', 'whatsapp', 'instagram'].includes(req.body?.via) ? req.body.via : null;
+  if (!via) return res.status(400).json({ error: 'Choose email, whatsapp or instagram' });
+  const to = via === 'email' ? (t.channel === 'email' && t.to_value) || t.lead_email : via === 'whatsapp' ? t.lead_phone || t.to_value : t.lead_instagram || t.to_value;
+  if (!to) return res.status(400).json({ error: `This lead has no ${via === 'email' ? 'email address' : via === 'whatsapp' ? 'phone number' : 'Instagram handle'}` });
+  for (const v of [to, t.lead_email, t.lead_phone, t.lead_instagram].filter(Boolean)) {
+    if (db.prepare('SELECT 1 FROM do_not_contact WHERE value=?').get(normalize(v))) return res.status(409).json({ error: 'This contact is on the do-not-contact list' });
+  }
+  if (via === 'email') {
+    if (!mailEnabled()) return res.status(400).json({ error: 'Email sending is not set up on the server yet (SMTP settings). Use WhatsApp or copy the message for now.' });
+    const footer = '\n\n--\nPulse Digital Creations\nIf you would rather not hear from us, just reply "stop" and we will not contact you again.';
+    try {
+      await sendMailOrThrow({ to, subject: t.subject || `A quick idea for ${t.lead_name}`, text: (t.body || '') + footer, replyTo: req.user.email || undefined });
+    } catch (e) {
+      return res.status(502).json({ error: 'Email could not be sent: ' + e.message });
+    }
+  }
+  db.prepare('UPDATE hunter_touches SET sent_at=?, sent_by=?, sent_via=? WHERE id=?').run(now(), req.user.id, via, id);
+  db.prepare("UPDATE hunter_leads SET status=CASE WHEN status IN ('new','audited','approved') THEN 'outreach' ELSE status END, updated_at=?, updated_by=? WHERE id=?").run(now(), req.user.id, t.lead_id);
+  audit(req.user, 'UPDATE', 'hunter_touch', id, `Sent via ${via}`);
+  await invalidate('hunter:');
+  res.json({ ok: true, via, to });
 });
 
 router.put('/hunter/touches/:id/approve', requireHunterAccess, (req, res) => {

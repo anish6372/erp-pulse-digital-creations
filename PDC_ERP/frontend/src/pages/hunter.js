@@ -994,6 +994,7 @@ async function paintTouches(statusFilter, mode) {
           mode === 'approvals'
             ? `<div class="pnl" style="margin-top:8px"><button class="btn" data-approve="${t.id}">Approve</button><button class="btn alt" data-reject="${t.id}">Reject</button></div>`
             : `<div class="pnl" style="margin-top:8px">
+                ${sendButtons(t)}
                 <button class="btn alt" data-copy="${t.id}">Copy message</button>
                 <button class="btn" data-outcome="${t.id}" data-outcome-val="interested">Interested</button>
                 <button class="btn alt" data-outcome="${t.id}" data-outcome-val="not_now">Not now</button>
@@ -1020,6 +1021,9 @@ async function paintTouches(statusFilter, mode) {
   $('page-hunter')
     .querySelectorAll('[data-copy]')
     .forEach((b) => (b.onclick = () => copyTouch(Number(b.dataset.copy))));
+  $('hunterBody')
+    .querySelectorAll('[data-send]')
+    .forEach((b) => (b.onclick = () => sendTouch(Number(b.dataset.send), b.dataset.via)));
   $('page-hunter')
     .querySelectorAll('[data-outcome]')
     .forEach((b) => (b.onclick = () => logOutcome(Number(b.dataset.outcome), b.dataset.outcomeVal)));
@@ -1044,6 +1048,50 @@ async function rejectTouch(id) {
     await loadTab();
   } catch (e) {
     toast(e.message || 'Could not reject this message');
+  }
+}
+
+// ---- sending approved messages ----
+const waNumber = (phone) => {
+  let d = String(phone || '').replace(/\D/g, '');
+  if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
+  if (d.length === 10) d = '91' + d; // Indian numbers saved without the country code
+  return d;
+};
+let touchCache = [];
+
+function sendButtons(t) {
+  touchCache = touchCache.filter((x) => x.id !== t.id).concat(t);
+  const sent = t.sent_at ? `<span class="badge green">Sent via ${esc(t.sent_via)} &middot; ${esc(t.sent_by_name || '')} &middot; ${esc(fmtWhen(t.sent_at))}</span>` : '';
+  const email = (t.channel === 'email' && t.to_value) || t.lead_email;
+  const btn = [];
+  if (email) btn.push(`<button class="btn" data-send="${t.id}" data-via="email" ${cfg.email_enabled ? '' : 'title="Email sending is not set up on the server yet"'}>${icon('send')}<span>Send email</span></button>`);
+  if (t.lead_phone) btn.push(`<button class="btn" data-send="${t.id}" data-via="whatsapp">Send on WhatsApp</button>`);
+  if (t.lead_instagram) btn.push(`<button class="btn alt" data-send="${t.id}" data-via="instagram">Instagram DM</button>`);
+  return sent + btn.join('');
+}
+
+async function sendTouch(id, via) {
+  const t = touchCache.find((x) => x.id === id);
+  if (!t) return;
+  const body = document.querySelector(`[data-body="${id}"]`)?.value || t.body || '';
+  if (via === 'email') {
+    if (!(await confirmDialog(`Send this email to ${(t.channel === 'email' && t.to_value) || t.lead_email}?`, { title: 'Send email', confirmText: 'Send' }))) return;
+  } else if (via === 'whatsapp') {
+    // Opens WhatsApp (app or web) with the message typed in - one tap to send from your own number.
+    window.open(`https://wa.me/${waNumber(t.lead_phone)}?text=${encodeURIComponent(body)}`, '_blank', 'noopener');
+  } else {
+    try { await navigator.clipboard.writeText(body); } catch (e) { /* ignore */ }
+    const h = String(t.lead_instagram).replace(/[?#].*$/, '').replace(/\/+$/, '').split('/').pop().replace(/^@/, '');
+    window.open(`https://ig.me/m/${encodeURIComponent(h)}`, '_blank', 'noopener');
+    toast('Message copied - paste it in the Instagram chat');
+  }
+  try {
+    await api(`/api/hunter/touches/${id}/send`, { method: 'POST', body: JSON.stringify({ via }) });
+    if (via === 'email') toast('Email sent');
+    await loadTab();
+  } catch (e) {
+    toast(e.message || 'Could not send');
   }
 }
 

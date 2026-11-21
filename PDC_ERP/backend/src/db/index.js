@@ -639,6 +639,10 @@ try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lat REAL'); } catch (e) {}
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN lng REAL'); } catch (e) {}
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN geo_tried INTEGER DEFAULT 0'); } catch (e) {}
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN updated_by INTEGER'); } catch (e) {}
+// When an approved outreach message was actually sent, by whom and how (email / whatsapp / instagram).
+try { db.exec('ALTER TABLE hunter_touches ADD COLUMN sent_at TEXT'); } catch (e) {}
+try { db.exec('ALTER TABLE hunter_touches ADD COLUMN sent_by INTEGER'); } catch (e) {}
+try { db.exec("ALTER TABLE hunter_touches ADD COLUMN sent_via TEXT DEFAULT ''"); } catch (e) {}
 // Market intel per lead: which agency they use today, their monthly budget, what they need.
 try { db.exec("ALTER TABLE hunter_leads ADD COLUMN current_agency TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec('ALTER TABLE hunter_leads ADD COLUMN budget INTEGER'); } catch (e) {}

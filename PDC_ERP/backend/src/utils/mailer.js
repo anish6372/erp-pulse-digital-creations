@@ -40,4 +40,13 @@ async function sendMail({ to, subject, html, text }) {
   }
 }
 
-module.exports = { sendMail };
+const mailEnabled = () => !!process.env.SMTP_HOST;
+
+// Like sendMail, but throws on failure - for when the user is waiting to hear if it went out.
+async function sendMailOrThrow({ to, subject, html, text, replyTo }) {
+  const t = getTransporter();
+  if (!t) throw new Error('Email sending is not set up on the server (SMTP settings missing).');
+  await t.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to, subject, text, html, replyTo: replyTo || undefined });
+}
+
+module.exports = { sendMail, sendMailOrThrow, mailEnabled };
